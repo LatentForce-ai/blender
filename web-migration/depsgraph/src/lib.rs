@@ -135,8 +135,9 @@ impl Depsgraph {
                         dirty_meshes.insert(mesh);
                     }
                 }
-                // Scenes and collections only carry RELATIONS, handled above.
-                IdType::Scene | IdType::Collection => {}
+                // Scenes and collections only carry RELATIONS, handled above. Materials carry
+                // SHADING, which the shading evaluator (HACK-7) will consume; nothing here uses it yet.
+                IdType::Scene | IdType::Collection | IdType::Material => {}
             }
         }
 
