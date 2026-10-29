@@ -1,4 +1,4 @@
-import init, { BlenderMain, Depsgraph, Viewport, tick } from "../pkg/app.js";
+import init, { BlenderMain, Depsgraph, Shading, Viewport, tick } from "../pkg/app.js";
 
 /// Blender's default cube is 2 m across.
 const DEFAULT_CUBE_SIZE = 2.0;
@@ -104,6 +104,7 @@ try {
   const sceneName = new URLSearchParams(location.search).get("scene") ?? "default";
   const { scene, animate } = (SCENES[sceneName] ?? defaultScene)(bmain);
   const depsgraph = new Depsgraph(scene);
+  const shading = new Shading();
   status.textContent = viewport.backend();
   bindControls(viewport);
 
@@ -114,7 +115,7 @@ try {
 
   const frame = (milliseconds) => {
     animate(milliseconds / 1000);
-    tick(bmain, depsgraph, viewport);
+    tick(bmain, depsgraph, shading, viewport);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
