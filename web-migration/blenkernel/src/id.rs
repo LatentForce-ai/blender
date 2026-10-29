@@ -9,6 +9,7 @@ pub enum IdType {
     Object = 1,
     Mesh = 2,
     Collection = 3,
+    Material = 4,
 }
 
 impl IdType {
@@ -20,6 +21,7 @@ impl IdType {
             IdType::Object => "OB",
             IdType::Mesh => "ME",
             IdType::Collection => "GR",
+            IdType::Material => "MA",
         }
     }
 }
@@ -31,11 +33,13 @@ pub mod recalc {
     pub const TRANSFORM: u32 = 1 << 0;
     /// Same bit as `ID_RECALC_GEOMETRY`.
     pub const GEOMETRY: u32 = 1 << 1;
+    /// Same bit as `ID_RECALC_SHADING`: material values, node trees or material assignment.
+    pub const SHADING: u32 = 1 << 7;
     /// Port-specific: links, parenting or collection membership changed.
     /// In Blender this is `DEG_relations_tag_update` rather than an ID flag.
     pub const RELATIONS: u32 = 1 << 31;
     /// Everything; set on newly created data-blocks.
-    pub const ALL: u32 = TRANSFORM | GEOMETRY | RELATIONS;
+    pub const ALL: u32 = TRANSFORM | GEOMETRY | SHADING | RELATIONS;
 }
 
 /// Maximum name length in bytes: `MAX_ID_NAME` (258) minus the 2-byte type prefix and the

@@ -333,3 +333,22 @@ Reference: `source/blender/blenloader/intern/readfile.cc`, `makesdna/intern/dna_
 - [ ] Demo page shows animated objects
 - [ ] README + API posted in the Hackathon topic
 - [ ] Work committed on a branch; progress logged on the ticket
+
+---
+
+## HACK-9: Material and shader node-tree data-blocks (for shading, HACK-7)
+
+**Done (2026-10-29):**
+- `material.rs`: `Material` (viewport color, metallic, roughness, embedded node tree), defaults from
+  `DNA_material_defaults.h`; default tree from `material_default_surface_init`.
+- `node.rs`: `NodeTree` with nodes, typed sockets + default values, links (one per input, replaced
+  on relink; shader→non-shader and cycles refused), active output, topological order, JSON export.
+- `node_types.rs`: 10 shader node types with Blender's socket identifiers and defaults.
+- Mesh material slots (user-counted), per-face `material_index`, per-triangle slots for render;
+  `object_material()` clamps like `BKE_object_material_get`.
+- `recalc::SHADING` (= `ID_RECALC_SHADING`) reported by `take_changes()`; IdType 4 = Material.
+- JS API for all of the above; `tests/material_tests.rs` (12) + JS smoke checks; demo colors
+  objects by material.
+
+**Decisions:** node tree embedded in the material (as in Blender, not a separate data-block);
+blenkernel only stores the graph, the shading module evaluates it.

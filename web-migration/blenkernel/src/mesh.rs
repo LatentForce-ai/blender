@@ -16,9 +16,10 @@ use std::ops::Range;
 
 use glam::Vec3;
 
-use crate::attribute::{AttrDomain, Attribute, AttributeStorage};
+use crate::attribute::{AttrDomain, Attribute, AttributeData, AttributeStorage};
 use crate::error::BkeError;
 use crate::id::IdHeader;
+use crate::material::MaterialId;
 use crate::{mesh_calc_edges, mesh_normals, mesh_tessellate};
 
 /// Handle of a mesh in a [`crate::Main`].
@@ -48,8 +49,14 @@ pub struct Mesh {
     corner_verts: Vec<i32>,
     corner_edges: Vec<i32>,
     attributes: AttributeStorage,
+    /// Material slots (`Mesh::mat`); `None` is an empty slot. Faces pick a slot with the
+    /// `material_index` attribute.
+    pub(crate) materials: Vec<Option<MaterialId>>,
     runtime: MeshRuntime,
 }
+
+/// Face attribute selecting the material slot (`"material_index"` in Blender).
+pub const MATERIAL_INDEX: &str = "material_index";
 
 impl Default for Mesh {
     fn default() -> Self {
@@ -61,6 +68,7 @@ impl Default for Mesh {
             corner_verts: Vec::new(),
             corner_edges: Vec::new(),
             attributes: AttributeStorage::default(),
+            materials: Vec::new(),
             runtime: MeshRuntime::default(),
         }
     }
@@ -239,6 +247,54 @@ impl Mesh {
 
     pub fn remove_attribute(&mut self, name: &str) -> bool {
         self.attributes.remove(name)
+    }
+
+    /// Material slots. Change them through `Main::mesh_set_materials` so user counts stay right.
+    pub fn materials(&self) -> &[Option<MaterialId>] {
+        &self.materials
+    }
+
+    /// Material slot index per face; all 0 when the attribute doesn't exist.
+    pub fn material_indices(&self) -> Vec<i32> {
+        match self.attributes.lookup(MATERIAL_INDEX).map(|a| &a.data) {
+            Some(AttributeData::Int32(values)) => values.clone(),
+            _ => vec![0; self.faces_num()],
+        }
+    }
+
+    /// Set the material slot index of every face (one non-negative value per face).
+    /// Indices past the last slot are allowed; drawing clamps them like Blender does.
+    pub fn set_material_indices(&mut self, indices: Vec<i32>) -> Result<(), BkeError> {
+        if indices.len() != self.faces_num() {
+            return Err(BkeError::LengthMismatch {
+                what: "material_index",
+                expected: self.faces_num(),
+                got: indices.len(),
+            });
+        }
+        if indices.iter().any(|&i| i < 0) {
+            return Err(BkeError::InvalidValue("material_index must be >= 0".into()));
+        }
+        self.attributes.remove(MATERIAL_INDEX);
+        self.add_attribute(Attribute {
+            name: MATERIAL_INDEX.into(),
+            domain: AttrDomain::Face,
+            data: AttributeData::Int32(indices),
+        })
+    }
+
+    /// Material slot per triangle of [`Mesh::corner_tris`], clamped to the last slot
+    /// (0 when there are no slots). Lets a renderer split its index buffer by material.
+    pub fn tri_material_indices(&self) -> Vec<u32> {
+        let max_slot = self.materials.len().saturating_sub(1) as i32;
+        let face_indices = self.material_indices();
+        let mut result = Vec::with_capacity(self.corner_tris().len());
+        for (face, f) in self.face_offsets.windows(2).enumerate() {
+            let tris = (f[1] - f[0] - 2).max(0) as usize;
+            let slot = face_indices[face].clamp(0, max_slot) as u32;
+            result.extend(std::iter::repeat(slot).take(tris));
+        }
+        result
     }
 
     /// Check that all topology arrays are consistent (a small `BKE_mesh_validate`).

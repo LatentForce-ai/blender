@@ -12,6 +12,7 @@ use glam::Mat4;
 use crate::collection::{Collection, CollectionId};
 use crate::error::BkeError;
 use crate::id::{recalc, truncate_name, IdHeader, IdType, MAX_NAME_BYTES};
+use crate::material::{Material, MaterialId};
 use crate::mesh::{Mesh, MeshId};
 use crate::object::{Object, ObjectData, ObjectId};
 use crate::scene::{Scene, SceneId};
@@ -98,6 +99,12 @@ impl DataBlock for Mesh {
     }
 }
 
+impl DataBlock for Material {
+    fn header_mut(&mut self) -> &mut IdHeader {
+        &mut self.id
+    }
+}
+
 impl DataBlock for Collection {
     fn header_mut(&mut self) -> &mut IdHeader {
         &mut self.id
@@ -143,6 +150,7 @@ fn default_name(id_type: IdType) -> &'static str {
         IdType::Object => "Object",
         IdType::Mesh => "Mesh",
         IdType::Collection => "Collection",
+        IdType::Material => "Material",
     }
 }
 
@@ -168,6 +176,7 @@ pub struct Main {
     objects: Arena<Object>,
     meshes: Arena<Mesh>,
     collections: Arena<Collection>,
+    materials: Arena<Material>,
     names: NameMap,
     last_session_uid: u32,
 }
@@ -290,7 +299,87 @@ impl Main {
         }
         let removed = self.meshes.remove(mesh.0).expect("checked above");
         self.names.release(IdType::Mesh, &removed.id.name);
+        for material in removed.materials.iter().flatten() {
+            self.remove_material_user(*material);
+        }
         Ok(())
+    }
+
+    /// Replace a mesh's material slots (`BKE_id_material_assign`). Each slot holding a
+    /// material counts as one user of it.
+    pub fn mesh_set_materials(&mut self, mesh: MeshId, materials: Vec<Option<MaterialId>>) -> Result<(), BkeError> {
+        self.mesh(mesh)?;
+        for material in materials.iter().flatten() {
+            self.material(*material)?;
+        }
+        for material in materials.iter().flatten() {
+            self.materials.get_mut(material.0).expect("checked above").id.users += 1;
+        }
+        let found = self.meshes.get_mut(mesh.0).expect("checked above");
+        let old = std::mem::replace(&mut found.materials, materials);
+        found.id.recalc |= recalc::SHADING | recalc::RELATIONS;
+        for material in old.iter().flatten() {
+            self.remove_material_user(*material);
+        }
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------- Materials
+
+    /// `BKE_material_add`. With `use_nodes`, the material gets Blender's default surface tree
+    /// (Principled BSDF → Material Output), as the "New Material" button creates.
+    pub fn material_add(&mut self, name: &str, use_nodes: bool) -> MaterialId {
+        let mut material = if use_nodes { Material::with_default_nodes() } else { Material::new() };
+        material.id = self.new_id(IdType::Material, name);
+        MaterialId(self.materials.insert(material))
+    }
+
+    pub fn material(&self, material: MaterialId) -> Result<&Material, BkeError> {
+        self.materials.get(material.0).ok_or(invalid(IdType::Material, material.0))
+    }
+
+    /// Mutable access to values and the node tree; tags the material for a shading update.
+    pub fn material_mut(&mut self, material: MaterialId) -> Result<&mut Material, BkeError> {
+        let found = self
+            .materials
+            .get_mut(material.0)
+            .ok_or(invalid(IdType::Material, material.0))?;
+        found.id.recalc |= recalc::SHADING;
+        Ok(found)
+    }
+
+    pub fn materials(&self) -> impl Iterator<Item = (MaterialId, &Material)> {
+        self.materials.iter().map(|(h, m)| (MaterialId(h), m))
+    }
+
+    /// Remove a material. Refused while mesh slots still use it.
+    pub fn material_remove(&mut self, material: MaterialId) -> Result<(), BkeError> {
+        let users = self.material(material)?.id.users;
+        if users > 0 {
+            return Err(BkeError::StillInUse { id_type: IdType::Material, handle: material.0, users });
+        }
+        let removed = self.materials.remove(material.0).expect("checked above");
+        self.names.release(IdType::Material, &removed.id.name);
+        Ok(())
+    }
+
+    /// The material an object's face uses: the mesh's slot `slot`, clamped like Blender
+    /// (`BKE_object_material_get`). `None` for empties, meshes without slots, or empty slots.
+    pub fn object_material(&self, object: ObjectId, slot: usize) -> Result<Option<MaterialId>, BkeError> {
+        let Some(mesh) = self.object(object)?.mesh() else {
+            return Ok(None);
+        };
+        let slots = &self.mesh(mesh)?.materials;
+        if slots.is_empty() {
+            return Ok(None);
+        }
+        Ok(slots[slot.min(slots.len() - 1)])
+    }
+
+    fn remove_material_user(&mut self, material: MaterialId) {
+        if let Some(found) = self.materials.get_mut(material.0) {
+            found.id.users = found.id.users.saturating_sub(1);
+        }
     }
 
     // ---------------------------------------------------------------- Objects
@@ -575,13 +664,14 @@ impl Main {
             IdType::Object => self.objects.get_mut(handle).map(|o| &mut o.id),
             IdType::Mesh => self.meshes.get_mut(handle).map(|m| &mut m.id),
             IdType::Collection => self.collections.get_mut(handle).map(|c| &mut c.id),
+            IdType::Material => self.materials.get_mut(handle).map(|m| &mut m.id),
         };
         header.ok_or(invalid(id_type, handle))?.recalc |= flags;
         Ok(())
     }
 
     /// Return every data-block with pending update flags and clear them. The depsgraph calls
-    /// this once per frame. Order: scenes, objects, meshes, collections.
+    /// this once per frame. Order: scenes, objects, meshes, collections, materials.
     pub fn take_changes(&mut self) -> Vec<Change> {
         fn drain<T: DataBlock>(arena: &mut Arena<T>, id_type: IdType, out: &mut Vec<Change>) {
             for (handle, block) in arena.iter_mut() {
@@ -597,6 +687,7 @@ impl Main {
         drain(&mut self.objects, IdType::Object, &mut changes);
         drain(&mut self.meshes, IdType::Mesh, &mut changes);
         drain(&mut self.collections, IdType::Collection, &mut changes);
+        drain(&mut self.materials, IdType::Material, &mut changes);
         changes
     }
 }
