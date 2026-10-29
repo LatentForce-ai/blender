@@ -45,6 +45,24 @@ export function ViewportPanel({ engine }: { engine: Engine }) {
             </button>
           ))}
         </div>
+        {engine.shadingType === "MATERIAL" && (
+          <div className="environment">
+            <label className="button" title="Light Material Preview with a Radiance .hdr environment">
+              {engine.environment || "Studio"} · Load HDRI…
+              <input
+                type="file"
+                accept=".hdr"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) engine.loadEnvironment(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {engine.environment && <button onClick={() => engine.resetEnvironment()}>Studio</button>}
+          </div>
+        )}
         <span className="hint">Drag to orbit · Scroll to zoom</span>
         <span className="backend">{engine.backend || "starting…"}</span>
       </div>

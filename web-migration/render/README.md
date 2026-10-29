@@ -15,6 +15,7 @@ parts the default viewport uses, onto [`wgpu`](https://wgpu.rs).
 | `src/mesh_extract.rs` | `draw/intern/draw_cache_impl_mesh.cc` (surface batch), `SortedFaceData` |
 | `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque and transparent pipelines, `get_world_lighting` |
 | `src/studio_light.rs` | `blenkernel/intern/studiolight.cc` (`BKE_studiolight_default`) |
+| `src/environment.rs` | `studiolight.cc` (equirect HDRI), EEVEE world SH and reflection-probe mips |
 | `src/material.rs` | `workbench::Material` (viewport display values); Material Preview values from `../shading` |
 | `src/overlay_grid.rs`, `src/grid_pass.rs`, `src/grid.wgsl` | `draw/engines/overlay/overlay_grid.hh`, `overlay_grid_vert/frag.glsl` |
 | `src/theme.rs` | `userdef_default_theme.c`, `ui::theme` shade and blend helpers |
@@ -30,9 +31,14 @@ grouping, and grid levels and colours against Blender's formulas. The GPU module
 - One forward pass instead of workbench's G-buffer and resolve passes. With default settings
   (no cavity, shadow, outline or X-ray) the image is the same.
 - 4× MSAA instead of workbench's TAA and SMAA and the overlay line anti-aliasing pass.
-- Solid mode and a simplified Material Preview (`set_shading_type("MATERIAL")`): node-tree results
-  from `../shading` (base colour, metallic, roughness, plus emission) lit by the same studio
-  light, instead of EEVEE with an HDRI. No image textures yet.
+- Solid mode and Material Preview (`set_shading_type("MATERIAL")`): node-tree results from
+  `../shading` (base colour, metallic, roughness, plus emission) lit by an environment
+  (`src/environment.rs`): SH irradiance for diffuse and five GGX-prefiltered mips for specular,
+  with an analytic split-sum BRDF in place of EEVEE's lookup table. No shadows, AO or
+  screen-space reflections, and the background stays the theme colour (World Opacity 0).
+  The default environment is a built-in procedural studio, since Blender's bundled `forest.exr`
+  isn't decoded here; `set_environment_hdr(bytes)` loads any Radiance `.hdr`. No image
+  textures yet.
 - A perspective free view with Material colour. No looking through the scene camera and no
   orthographic views.
 - Alpha below 1 is drawn blended after opaque surfaces and the grid, sorted far to near per

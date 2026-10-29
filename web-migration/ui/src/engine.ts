@@ -50,6 +50,8 @@ export class Engine {
   private frameTimes: number[] = [];
   revision = 0;
   shadingType: ShadingType = "SOLID";
+  /// Name of the HDRI lighting Material Preview, or "" for the built-in studio.
+  environment = "";
   backend = "";
   error = "";
 
@@ -135,6 +137,22 @@ export class Engine {
     this.edit(() => {
       this.viewport?.set_shading_type(shadingType);
       this.shadingType = shadingType;
+    });
+  }
+
+  /// Light Material Preview with a Radiance `.hdr` file.
+  async loadEnvironment(file: File) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    this.edit(() => {
+      this.viewport?.set_environment_hdr(bytes);
+      this.environment = file.name;
+    });
+  }
+
+  resetEnvironment() {
+    this.edit(() => {
+      this.viewport?.reset_environment();
+      this.environment = "";
     });
   }
 

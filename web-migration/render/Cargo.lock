@@ -689,6 +689,7 @@ dependencies = [
  "bytemuck",
  "depsgraph",
  "glam",
+ "half",
  "shading",
  "wasm-bindgen",
  "wasm-bindgen-futures",
