@@ -163,3 +163,16 @@ fn session_uids_are_unique() {
     assert_ne!(uid_scene, uid_ob);
     assert!(uid_scene > 0 && uid_ob > 0);
 }
+
+#[test]
+fn rename_keeps_names_unique() {
+    let mut bmain = Main::new();
+    let a = bmain.object_add("Cube", ObjectData::Empty).unwrap();
+    let b = bmain.object_add("Sphere", ObjectData::Empty).unwrap();
+    assert_eq!(bmain.id_rename(IdType::Object, b.0, "Cube").unwrap(), "Cube.001");
+    assert_eq!(bmain.id_rename(IdType::Object, a.0, "Floor").unwrap(), "Floor");
+    // The old name is free again.
+    assert_eq!(bmain.id_rename(IdType::Object, b.0, "Cube").unwrap(), "Cube");
+    assert_eq!(bmain.id_rename(IdType::Object, b.0, "Cube").unwrap(), "Cube", "same name is a no-op");
+    assert!(bmain.id_rename(IdType::Object, 99, "x").is_err());
+}

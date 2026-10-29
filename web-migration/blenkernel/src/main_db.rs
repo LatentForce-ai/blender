@@ -657,8 +657,7 @@ impl Main {
 
     // ---------------------------------------------------------------- Updates
 
-    /// Add update flags to a data-block (`DEG_id_tag_update`).
-    pub fn tag(&mut self, id_type: IdType, handle: u32, flags: u32) -> Result<(), BkeError> {
+    fn header_mut(&mut self, id_type: IdType, handle: u32) -> Result<&mut IdHeader, BkeError> {
         let header = match id_type {
             IdType::Scene => self.scenes.get_mut(handle).map(|s| &mut s.id),
             IdType::Object => self.objects.get_mut(handle).map(|o| &mut o.id),
@@ -666,8 +665,23 @@ impl Main {
             IdType::Collection => self.collections.get_mut(handle).map(|c| &mut c.id),
             IdType::Material => self.materials.get_mut(handle).map(|m| &mut m.id),
         };
-        header.ok_or(invalid(id_type, handle))?.recalc |= flags;
+        header.ok_or(invalid(id_type, handle))
+    }
+
+    /// Add update flags to a data-block (`DEG_id_tag_update`).
+    pub fn tag(&mut self, id_type: IdType, handle: u32, flags: u32) -> Result<(), BkeError> {
+        self.header_mut(id_type, handle)?.recalc |= flags;
         Ok(())
+    }
+
+    /// Rename a data-block (`BKE_libblock_rename`). Returns the unique name it got, which gets
+    /// a ".001" style suffix if `name` is taken by another data-block of the same type.
+    pub fn id_rename(&mut self, id_type: IdType, handle: u32, name: &str) -> Result<String, BkeError> {
+        let old = self.header_mut(id_type, handle)?.name.clone();
+        self.names.release(id_type, &old);
+        let new_name = self.names.claim(id_type, name);
+        self.header_mut(id_type, handle)?.name = new_name.clone();
+        Ok(new_name)
     }
 
     /// Return every data-block with pending update flags and clear them. The depsgraph calls
