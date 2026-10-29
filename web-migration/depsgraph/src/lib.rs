@@ -135,10 +135,11 @@ impl Depsgraph {
                         dirty_meshes.insert(mesh);
                     }
                 }
-                // Scenes and collections only carry RELATIONS, handled above. Materials carry
-                // SHADING, which the shading evaluator (HACK-7) will consume; nothing here uses it yet.
-                // Images (HACK-14) are immutable once added; render caches them by handle.
-                IdType::Scene | IdType::Collection | IdType::Material | IdType::Image => {}
+                // Everything else needs nothing here: scenes and collections only carry RELATIONS,
+                // handled above; materials (SHADING) are re-checked by the shading crate itself;
+                // images are immutable once added. A catch-all so a new data-block type in
+                // blenkernel doesn't break this crate's build.
+                _ => {}
             }
         }
 
