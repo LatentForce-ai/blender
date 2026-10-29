@@ -1,0 +1,20 @@
+[package]
+name = "shading"
+version = "0.1.0"
+edition = "2021"
+description = "Shader node-tree evaluator for the Blender web migration (hackathon ticket HACK-7)"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Plain library: it is linked into the single `.wasm` built by the top-level crate
+# (`web-migration/app/`), like depsgraph. No wasm-bindgen exports of its own.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+blenkernel = { path = "../blenkernel" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+glam = "0.29"
+serde_json = "1"
