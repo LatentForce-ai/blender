@@ -2,7 +2,7 @@
 // The scene lives in Rust; React reads it through `BlenderMain` and re-renders when `revision`
 // changes. Every UI edit goes through an Engine method, which bumps the revision.
 
-import init, { BlenderMain, Depsgraph, Viewport, tick } from "../../app/pkg/app.js";
+import init, { BlenderMain, Depsgraph, Shading, Viewport, tick } from "../../app/pkg/app.js";
 
 /// Handle value meaning "none" in the blenkernel API.
 export const NONE = 0xffffffff;
@@ -32,6 +32,8 @@ export class Engine {
   readonly bmain: BlenderMain;
   readonly scene: number;
   private readonly depsgraph: Depsgraph;
+  /// Evaluates material node trees each frame (HACK-7).
+  private readonly shading = new Shading();
   private viewport: Viewport | null = null;
   private listeners = new Set<() => void>();
   private frameTimes: number[] = [];
@@ -104,7 +106,7 @@ export class Engine {
     const frame = (now: number) => {
       if (this.viewport) {
         try {
-          tick(this.bmain, this.depsgraph, this.viewport);
+          tick(this.bmain, this.depsgraph, this.shading, this.viewport);
         } catch (err) {
           this.error = `Draw failed: ${err}`;
         }
