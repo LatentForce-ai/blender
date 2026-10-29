@@ -7,12 +7,13 @@ use std::collections::{HashMap, HashSet};
 use blenkernel::{Main, Mesh, MeshId, ObjectId};
 use depsgraph::{Depsgraph, Updates};
 use glam::Vec2;
+use shading::ShadingCache;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::camera::{CLIP_END, OrbitCamera};
 use crate::grid_pass::GridPass;
-use crate::material::SolidMaterial;
+use crate::material::{ShadingType, SolidMaterial};
 use crate::mesh_extract::{extract_surface, material_slot_count};
 use crate::solid_pass::{DEPTH_FORMAT, MeshBatch, ObjectBinding, SolidPass};
 use crate::studio_light::StudioLight;
@@ -45,6 +46,7 @@ pub struct Viewport {
     solid: SolidPass,
     grid: GridPass,
     camera: OrbitCamera,
+    shading_type: ShadingType,
     meshes: HashMap<MeshId, MeshBatch>,
     objects: HashMap<SlotKey, ObjectBinding>,
 }
@@ -98,6 +100,7 @@ impl Viewport {
             sample_count,
             backend: adapter.get_info().backend,
             camera: OrbitCamera::default(),
+            shading_type: ShadingType::default(),
             meshes: HashMap::new(),
             objects: HashMap::new(),
         })
@@ -138,6 +141,19 @@ impl Viewport {
     pub fn zoom(&mut self, steps: f32) {
         self.camera.zoom(steps);
     }
+
+    /// `"SOLID"` or `"MATERIAL"` (Material Preview), as Blender's `shading.type`.
+    pub fn shading_type(&self) -> String {
+        self.shading_type.identifier().to_owned()
+    }
+
+    /// Switches between Solid (viewport display values) and Material Preview (node-tree
+    /// results). Takes effect on the next draw.
+    pub fn set_shading_type(&mut self, identifier: &str) -> Result<(), JsError> {
+        self.shading_type = ShadingType::from_identifier(identifier)
+            .ok_or_else(|| JsError::new(&format!("unsupported shading type \"{identifier}\"")))?;
+        Ok(())
+    }
 }
 
 impl Viewport {
@@ -149,10 +165,15 @@ impl Viewport {
         }
     }
 
-    /// Draws the depsgraph's evaluated scene and the floor grid into the canvas. Skips the
-    /// frame if the canvas is not ready.
-    pub fn draw(&mut self, main: &Main, depsgraph: &Depsgraph) -> Result<(), JsError> {
-        let draws = self.sync_scene(main, depsgraph)?;
+    /// Draws the depsgraph's evaluated scene and the floor grid into the canvas. Material
+    /// Preview reads materials from `shading`. Skips the frame if the canvas is not ready.
+    pub fn draw(
+        &mut self,
+        main: &Main,
+        depsgraph: &Depsgraph,
+        shading: &ShadingCache,
+    ) -> Result<(), JsError> {
+        let draws = self.sync_scene(main, depsgraph, shading)?;
         let Some(frame) = self.acquire_frame()? else {
             return Ok(());
         };
@@ -193,6 +214,7 @@ impl Viewport {
         &mut self,
         main: &Main,
         depsgraph: &Depsgraph,
+        shading: &ShadingCache,
     ) -> Result<Vec<(MeshId, SlotKey)>, JsError> {
         let mut draws = Vec::new();
         for &object in depsgraph.objects() {
@@ -206,9 +228,11 @@ impl Viewport {
                 .world_matrix(object)
                 .ok_or_else(|| JsError::new("depsgraph has no matrix for a scene object"))?;
             for slot in 0..self.meshes[&mesh].slot_count() {
-                let material = match main.object_material(object, slot)? {
-                    Some(material) => SolidMaterial::from(main.material(material)?),
-                    None => SolidMaterial::default(),
+                let material = match (self.shading_type, main.object_material(object, slot)?) {
+                    (ShadingType::Solid, Some(material)) => SolidMaterial::from(main.material(material)?),
+                    (ShadingType::Solid, None) => SolidMaterial::default(),
+                    // Empty slots get shading's default surface, as Blender's EEVEE does.
+                    (ShadingType::Material, _) => SolidMaterial::from(shading.object_slot(main, object, slot)),
                 };
                 let binding = self
                     .objects

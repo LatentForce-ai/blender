@@ -689,6 +689,7 @@ dependencies = [
  "bytemuck",
  "depsgraph",
  "glam",
+ "shading",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -760,6 +761,14 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "shading"
+version = "0.1.0"
+dependencies = [
+ "blenkernel",
+ "serde",
 ]
 
 [[package]]

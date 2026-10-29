@@ -51,7 +51,11 @@ button.small { padding: 1px 6px; font-size: 11px; }
   display: flex; gap: 10px; align-items: center; padding: 4px 10px;
   background: var(--header); border-bottom: 1px solid var(--border); color: var(--text-dim);
 }
-.viewport-header .pill { background: var(--accent); color: var(--accent-text); border-radius: 4px; padding: 0 8px; }
+.viewport-header .shading-toggle { display: flex; }
+.viewport-header .shading-toggle button { border-radius: 0; padding: 1px 8px; }
+.viewport-header .shading-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.viewport-header .shading-toggle button:last-child { border-radius: 0 4px 4px 0; }
+.viewport-header .shading-toggle button.active { background: var(--accent); color: var(--accent-text); }
 .viewport-header .backend { margin-left: auto; }
 .viewport-header .hint { font-size: 12px; }
 
@@ -66,6 +70,7 @@ button.small { padding: 1px 6px; font-size: 11px; }
 }
 .outliner { border-bottom: 1px solid var(--border); }
 .empty, .note { color: var(--text-dim); padding: 0 10px; margin: 8px 0; font-size: 12px; }
+.subsection { margin: 10px 10px 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .error { color: var(--error); padding: 0 10px; }
 
 /* Outliner */

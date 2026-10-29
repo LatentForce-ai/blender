@@ -8,7 +8,7 @@ share one scene in one memory, and it is the only crate built with `wasm-pack`.
 | `../blenkernel` | HACK-1, HACK-9 | Linked: scenes, objects, meshes, materials |
 | `../render` | HACK-3 | Linked: Solid-mode viewport, WebGPU with WebGL2 fallback |
 | `../depsgraph` | HACK-2 | Linked: evaluates transforms and geometry each frame |
-| `../shading` | HACK-7 | Linked: evaluates material node trees each frame (read through `Shading`; Solid mode still draws viewport values) |
+| `../shading` | HACK-7 | Linked: evaluates material node trees each frame (read through `Shading`; drawn in Material Preview) |
 
 ## Build and run
 
@@ -48,7 +48,7 @@ requestAnimationFrame(frame);
 (`[r, g, b, alpha, metallic, roughness, emission_r, emission_g, emission_b]`) and
 `material_texture(m)` (image name or `undefined`).
 
-`Viewport` also has `backend()` (`"WebGPU"` or `"WebGL2"`), `resize(width, height)` in canvas
+`Viewport` also has `set_shading_type("SOLID" | "MATERIAL")` and `shading_type()`, `backend()` (`"WebGPU"` or `"WebGL2"`), `resize(width, height)` in canvas
 pixels, `orbit(dx, dy)` in CSS pixels, and `zoom(steps)` in wheel notches (positive moves away).
 
 ## Adding a module
