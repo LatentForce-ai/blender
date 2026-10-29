@@ -14,6 +14,17 @@ const DEFAULT_CUBE_SIZE = 2;
 
 export type PrimitiveKind = "cube" | "uv_sphere" | "plane" | "grid" | "empty";
 
+/// Viewport shading, as Blender's `shading.type`: Solid draws viewport display values,
+/// Material Preview draws the evaluated node tree (HACK-11).
+export type ShadingType = "SOLID" | "MATERIAL";
+
+/// `BlenderMain.material_node_tree_json`, the parts the UI reads.
+interface NodeTreeJson {
+  output_node: number | null;
+  nodes: { id: number; idname: string }[];
+  links: { from_node: number; to_node: number; to_socket: string }[];
+}
+
 export interface ObjectInfo {
   handle: number;
   name: string;
@@ -38,6 +49,7 @@ export class Engine {
   private listeners = new Set<() => void>();
   private frameTimes: number[] = [];
   revision = 0;
+  shadingType: ShadingType = "SOLID";
   backend = "";
   error = "";
 
@@ -94,6 +106,7 @@ export class Engine {
   async attachViewport(canvas: HTMLCanvasElement) {
     fitCanvas(canvas);
     this.viewport = await Viewport.create(canvas);
+    this.viewport.set_shading_type(this.shadingType);
     this.backend = this.viewport.backend();
     this.changed();
 
@@ -116,6 +129,13 @@ export class Engine {
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
+  }
+
+  setShadingType(shadingType: ShadingType) {
+    this.edit(() => {
+      this.viewport?.set_shading_type(shadingType);
+      this.shadingType = shadingType;
+    });
   }
 
   orbit(dx: number, dy: number) {
@@ -214,6 +234,26 @@ export class Engine {
       this.bmain.mesh_set_materials(mesh, new Uint32Array(slots));
       return material;
     });
+  }
+
+  /// The Principled BSDF linked into the material output's Surface, which Blender's Material
+  /// properties show as the "Surface" panel. Undefined for other surface setups.
+  surfaceBsdf(material: number): number | undefined {
+    if (!this.bmain.material_has_node_tree(material)) return undefined;
+    const tree = JSON.parse(this.bmain.material_node_tree_json(material)) as NodeTreeJson;
+    const link = tree.links.find((l) => l.to_node === tree.output_node && l.to_socket === "Surface");
+    const node = tree.nodes.find((n) => n.id === link?.from_node);
+    return node?.idname === "ShaderNodeBsdfPrincipled" ? node.id : undefined;
+  }
+
+  /// Set an unlinked node input's value (1 float, or 3 for vectors, 4 for colours).
+  setNodeInput(material: number, node: number, socket: string, values: number[]) {
+    this.edit(() => this.bmain.material_node_set_input(material, node, socket, new Float32Array(values)));
+  }
+
+  /// Give a material Blender's default Principled BSDF node tree.
+  useNodes(material: number) {
+    this.edit(() => this.bmain.material_use_nodes(material));
   }
 
   removeMaterialSlot(object: number, slot: number) {

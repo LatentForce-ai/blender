@@ -29,8 +29,9 @@ impl SceneDepsgraph {
     }
 }
 
-/// Evaluated node-tree results of every material (HACK-7), kept across frames. Solid mode
-/// draws viewport values, so this feeds the UI and a future Material Preview mode.
+/// Evaluated node-tree results of every material (HACK-7), kept across frames. The viewport
+/// draws them in Material Preview (`viewport.set_shading_type("MATERIAL")`); Solid mode draws
+/// viewport values.
 #[wasm_bindgen]
 pub struct Shading {
     inner: shading::ShadingCache,
@@ -87,5 +88,5 @@ pub fn tick(
     // The depsgraph drained the change list, so shading checks every material itself.
     shading.updated = shading.inner.refresh(bmain.main()).into_iter().map(|m| m.0).collect();
     viewport.apply_updates(&updates);
-    viewport.draw(bmain.main(), &depsgraph.inner)
+    viewport.draw(bmain.main(), &depsgraph.inner, &shading.inner)
 }

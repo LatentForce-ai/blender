@@ -67,6 +67,9 @@ struct ObjectData {
     metallic: f32,
     mirrored: u32,
     _padding: u32,
+    /// Material Preview only; WGSL aligns the `vec3` to 16 bytes, which is offset 160 here.
+    emission: [f32; 3],
+    _padding_emission: f32,
 }
 
 /// One mesh's surface batch on the GPU.
@@ -181,6 +184,8 @@ impl SolidPass {
             metallic: material.metallic,
             mirrored: (model.determinant() < 0.0).into(),
             _padding: 0,
+            emission: material.emission,
+            _padding_emission: 0.0,
         };
         queue.write_buffer(&binding.uniform, 0, bytemuck::bytes_of(&object_data));
     }

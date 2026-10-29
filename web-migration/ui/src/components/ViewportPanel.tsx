@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
-import type { Engine } from "../engine";
+import type { Engine, ShadingType } from "../engine";
+
+const SHADING_TYPES: [ShadingType, string][] = [
+  ["SOLID", "Solid"],
+  ["MATERIAL", "Material Preview"],
+];
 
 /// The 3D viewport: the render crate draws into this canvas (WebGPU, or WebGL2 as fallback).
 /// Drag to orbit, scroll to zoom.
@@ -28,7 +33,18 @@ export function ViewportPanel({ engine }: { engine: Engine }) {
     <section className="viewport">
       <div className="viewport-header">
         <span>3D Viewport</span>
-        <span className="pill">Solid</span>
+        <div className="shading-toggle" role="group" aria-label="Viewport shading">
+          {SHADING_TYPES.map(([type, label]) => (
+            <button
+              key={type}
+              className={engine.shadingType === type ? "active" : ""}
+              aria-pressed={engine.shadingType === type}
+              onClick={() => engine.setShadingType(type)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <span className="hint">Drag to orbit · Scroll to zoom</span>
         <span className="backend">{engine.backend || "starting…"}</span>
       </div>

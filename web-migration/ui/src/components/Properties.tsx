@@ -149,7 +149,10 @@ function MaterialProperties({ engine, object }: { engine: Engine; object: number
           {material === NONE ? (
             <p className="note">Empty slot</p>
           ) : (
-            <MaterialFields engine={engine} material={material} />
+            <>
+              <MaterialFields engine={engine} material={material} />
+              <SurfaceFields engine={engine} material={material} />
+            </>
           )}
         </div>
       ))}
@@ -197,9 +200,56 @@ function MaterialFields({ engine, material }: { engine: Engine; material: number
       </label>
       <NumberField label="Metallic" value={metallic} step={0.05} min={0} max={1} onChange={(v) => set({ metallic: v })} />
       <NumberField label="Roughness" value={roughness} step={0.05} min={0} max={1} onChange={(v) => set({ roughness: v })} />
-      <p className="note">
-        Viewport display values (Solid mode). {b.material_has_node_tree(material) ? "Has a shader node tree." : ""}
-      </p>
+      <p className="note">Viewport display values (Solid mode).</p>
+    </>
+  );
+}
+
+/// Blender's "Surface" panel: the Principled BSDF feeding the material output, which Material
+/// Preview draws.
+function SurfaceFields({ engine, material }: { engine: Engine; material: number }) {
+  const b = engine.bmain;
+  if (!b.material_has_node_tree(material)) {
+    return <button onClick={() => engine.useNodes(material)}>Use Nodes</button>;
+  }
+  const bsdf = engine.surfaceBsdf(material);
+  if (bsdf === undefined) {
+    return <p className="note">Surface isn't a Principled BSDF; edit its nodes through the API.</p>;
+  }
+  const input = (socket: string) => [...b.material_node_input(material, bsdf, socket)];
+  const set = (socket: string, values: number[]) => engine.setNodeInput(material, bsdf, socket, values);
+  const baseColor = input("Base Color");
+  const emissionColor = input("Emission Color");
+
+  return (
+    <>
+      <h4 className="subsection">Surface · Principled BSDF</h4>
+      <label className="text-field">
+        <span>Base Color</span>
+        <input
+          type="color"
+          value={linearToHex([baseColor[0], baseColor[1], baseColor[2]])}
+          onChange={(e) => set("Base Color", [...hexToLinear(e.target.value), baseColor[3]])}
+        />
+      </label>
+      <NumberField label="Metallic" value={input("Metallic")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Metallic", [v])} />
+      <NumberField label="Roughness" value={input("Roughness")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Roughness", [v])} />
+      <label className="text-field">
+        <span>Emission</span>
+        <input
+          type="color"
+          value={linearToHex([emissionColor[0], emissionColor[1], emissionColor[2]])}
+          onChange={(e) => set("Emission Color", [...hexToLinear(e.target.value), emissionColor[3]])}
+        />
+      </label>
+      <NumberField
+        label="Strength"
+        value={input("Emission Strength")[0]}
+        step={0.1}
+        min={0}
+        onChange={(v) => set("Emission Strength", [v])}
+      />
+      <p className="note">Node values (Material Preview).</p>
     </>
   );
 }

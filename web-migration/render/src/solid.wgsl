@@ -31,6 +31,8 @@ struct ObjectData {
     metallic: f32,
     // Negative scale flips triangle winding, and with it `front_facing`.
     mirrored: u32,
+    // Material Preview: emitted light added after lighting. Black in Solid mode.
+    emission: vec3<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view_data: ViewData;
@@ -149,5 +151,5 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     let n = normalize(select(-in.view_normal, in.view_normal, facing));
     let i = normalize(-in.view_position);
     let color = world_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
-    return vec4(color, 1.0);
+    return vec4(color + object_data.emission, 1.0);
 }

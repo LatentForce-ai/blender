@@ -15,7 +15,7 @@ parts the default viewport uses, onto [`wgpu`](https://wgpu.rs).
 | `src/mesh_extract.rs` | `draw/intern/draw_cache_impl_mesh.cc` (surface batch), `SortedFaceData` |
 | `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque pipeline, `get_world_lighting` |
 | `src/studio_light.rs` | `blenkernel/intern/studiolight.cc` (`BKE_studiolight_default`) |
-| `src/material.rs` | `workbench::Material` (viewport display values) |
+| `src/material.rs` | `workbench::Material` (viewport display values); Material Preview values from `../shading` |
 | `src/overlay_grid.rs`, `src/grid_pass.rs`, `src/grid.wgsl` | `draw/engines/overlay/overlay_grid.hh`, `overlay_grid_vert/frag.glsl` |
 | `src/theme.rs` | `userdef_default_theme.c`, `ui::theme` shade and blend helpers |
 | `src/camera.rs` | `View3D` defaults, `BKE_camera_params_from_view3d` |
@@ -30,7 +30,10 @@ grouping, and grid levels and colours against Blender's formulas. The GPU module
 - One forward pass instead of workbench's G-buffer and resolve passes. With default settings
   (no cavity, shadow, outline or X-ray) the image is the same.
 - 4× MSAA instead of workbench's TAA and SMAA and the overlay line anti-aliasing pass.
-- Solid mode only, in a perspective free view with Material colour. No looking through the scene
+- Solid mode and a simplified Material Preview (`set_shading_type("MATERIAL")`): node-tree results
+  from `../shading` (base colour, metallic, roughness, plus emission) lit by the same studio
+  light, instead of EEVEE with an HDRI. No image textures yet.
+- A perspective free view with Material colour. No looking through the scene
   camera, no orthographic views, and opaque drawing only (alpha below 1 is not transparent).
 - Overlays: the floor grid and X/Y axes only. No selection outlines, wireframes, origins, or
   camera and light icons.

@@ -5,11 +5,12 @@ layout:
 
 - **Toolbar**: add Cube / UV Sphere / Plane / Grid / Empty, and Delete (or press X / Delete).
   Undo, Redo, Save and Open are shown disabled until HACK-8 lands.
-- **3D Viewport**: the render crate's Solid-mode viewport (WebGPU, WebGL2 fallback). Drag to
-  orbit, scroll to zoom.
+- **3D Viewport**: the render crate's viewport (WebGPU, WebGL2 fallback), with a Solid /
+  Material Preview toggle in its header. Drag to orbit, scroll to zoom.
 - **Outliner**: the scene's objects nested by parent. Click to select, double-click to rename.
 - **Properties**: Object (name, location, rotation in degrees, scale, parent), Material (slots,
-  viewport color / metallic / roughness, new and remove slot), Mesh Data (counts).
+  viewport color / metallic / roughness for Solid, the Principled BSDF's base color / metallic /
+  roughness / emission for Material Preview, new and remove slot), Mesh Data (counts).
 - **Status bar**: object, vertex, face and triangle counts, backend, fps.
 
 All scene data lives in Rust (`BlenderMain`). `src/engine.ts` wraps it: every UI edit goes
@@ -28,5 +29,5 @@ npm run build    # type-checks and writes dist/
 ## Not yet
 
 - Selecting by clicking in the viewport (needs picking in render) and a selection outline.
-- Timeline (there's no animation system yet), Material Preview / Rendered modes (needs shading
-  linked into `app`), editing quaternion rotations.
+- Timeline (there's no animation system yet), Rendered mode, image textures, editing node
+  links, editing quaternion rotations.
