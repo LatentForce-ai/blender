@@ -1,6 +1,7 @@
 //! Mesh checks against the numbers Blender produces (PLAN.md §7).
 
 use blenkernel::attribute::{AttrDomain, Attribute, AttributeData};
+use blenkernel::mesh::{SHARP_EDGE, SHARP_FACE};
 use blenkernel::{primitives, BkeError, Mesh};
 use glam::Vec3;
 
@@ -145,4 +146,32 @@ fn attributes() {
     };
     assert!(matches!(cube.add_attribute(wrong_length), Err(BkeError::LengthMismatch { .. })));
     assert!(cube.remove_attribute("weight"));
+}
+
+#[test]
+fn primitives_are_flat_shaded_like_blender() {
+    let meshes = [
+        primitives::cube(Vec3::splat(2.0)),
+        primitives::grid(3, 3, 1.0, 1.0),
+        primitives::uv_sphere(1.0, 32, 16),
+    ];
+    for mesh in meshes {
+        let sharp = mesh.attributes().lookup(SHARP_FACE).expect("primitives mark faces sharp");
+        assert_eq!(sharp.domain, AttrDomain::Face);
+        assert_eq!(sharp.data, AttributeData::Bool(vec![true; mesh.faces_num()]));
+    }
+}
+
+#[test]
+fn set_smooth_clears_sharp_faces_and_edges() {
+    let mut cube = primitives::cube(Vec3::splat(2.0));
+    let sharp_edges = Attribute {
+        name: SHARP_EDGE.into(),
+        domain: AttrDomain::Edge,
+        data: AttributeData::Bool(vec![true; cube.edges_num()]),
+    };
+    cube.add_attribute(sharp_edges).unwrap();
+    cube.set_smooth(true);
+    assert!(cube.attributes().lookup(SHARP_FACE).is_none());
+    assert!(cube.attributes().lookup(SHARP_EDGE).is_none());
 }

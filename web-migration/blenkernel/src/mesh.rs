@@ -22,6 +22,11 @@ use crate::id::IdHeader;
 use crate::material::MaterialId;
 use crate::{mesh_calc_edges, mesh_normals, mesh_tessellate};
 
+/// Built-in face attribute marking flat-shaded faces; absent means every face is smooth.
+pub const SHARP_FACE: &str = "sharp_face";
+/// Built-in edge attribute marking edges that split normals.
+pub const SHARP_EDGE: &str = "sharp_edge";
+
 /// Handle of a mesh in a [`crate::Main`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MeshId(pub u32);
@@ -164,6 +169,21 @@ impl Mesh {
         self.positions = positions;
         self.tag_positions_changed();
         Ok(())
+    }
+
+    /// Shade every face smooth or flat (`bke::mesh_smooth_set` without `keep_sharp_edges`):
+    /// clears sharp edges and faces, then marks all faces sharp when `use_smooth` is false.
+    pub fn set_smooth(&mut self, use_smooth: bool) {
+        self.attributes.remove(SHARP_EDGE);
+        self.attributes.remove(SHARP_FACE);
+        if !use_smooth {
+            let sharp_faces = Attribute {
+                name: SHARP_FACE.to_owned(),
+                domain: AttrDomain::Face,
+                data: AttributeData::Bool(vec![true; self.faces_num()]),
+            };
+            self.add_attribute(sharp_faces).expect("one value per face, name just removed");
+        }
     }
 
     /// Call after editing positions directly (`Mesh::tag_positions_changed`).
