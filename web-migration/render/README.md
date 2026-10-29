@@ -13,7 +13,7 @@ parts the default viewport uses, onto [`wgpu`](https://wgpu.rs).
 | File | Ported from (`source/blender/…`) |
 |---|---|
 | `src/mesh_extract.rs` | `draw/intern/draw_cache_impl_mesh.cc` (surface batch), `SortedFaceData` |
-| `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque pipeline, `get_world_lighting` |
+| `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque and transparent pipelines, `get_world_lighting` |
 | `src/studio_light.rs` | `blenkernel/intern/studiolight.cc` (`BKE_studiolight_default`) |
 | `src/material.rs` | `workbench::Material` (viewport display values); Material Preview values from `../shading` |
 | `src/overlay_grid.rs`, `src/grid_pass.rs`, `src/grid.wgsl` | `draw/engines/overlay/overlay_grid.hh`, `overlay_grid_vert/frag.glsl` |
@@ -33,8 +33,11 @@ grouping, and grid levels and colours against Blender's formulas. The GPU module
 - Solid mode and a simplified Material Preview (`set_shading_type("MATERIAL")`): node-tree results
   from `../shading` (base colour, metallic, roughness, plus emission) lit by the same studio
   light, instead of EEVEE with an HDRI. No image textures yet.
-- A perspective free view with Material colour. No looking through the scene
-  camera, no orthographic views, and opaque drawing only (alpha below 1 is not transparent).
+- A perspective free view with Material colour. No looking through the scene camera and no
+  orthographic views.
+- Alpha below 1 is drawn blended after opaque surfaces and the grid, sorted far to near per
+  object (like EEVEE's "Blended" method), each mesh back faces first. Workbench uses weighted
+  blended OIT instead, so intersecting transparent objects can sort differently.
 - Overlays: the floor grid and X/Y axes only. No selection outlines, wireframes, origins, or
   camera and light icons.
 - Overlay colours blend in scene-linear space rather than display space.

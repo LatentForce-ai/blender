@@ -164,7 +164,7 @@ function MaterialProperties({ engine, object }: { engine: Engine; object: number
 function MaterialFields({ engine, material }: { engine: Engine; material: number }) {
   const b = engine.bmain;
   const [r, g, bl, a, metallic, roughness] = b.material_viewport(material);
-  const set = (values: Partial<{ rgb: [number, number, number]; metallic: number; roughness: number }>) => {
+  const set = (values: Partial<{ rgb: [number, number, number]; alpha: number; metallic: number; roughness: number }>) => {
     const [nr, ng, nb] = values.rgb ?? [r, g, bl];
     engine.edit(() =>
       b.material_set_viewport(
@@ -172,7 +172,7 @@ function MaterialFields({ engine, material }: { engine: Engine; material: number
         nr,
         ng,
         nb,
-        a,
+        values.alpha ?? a,
         values.metallic ?? metallic,
         values.roughness ?? roughness,
       ),
@@ -200,7 +200,8 @@ function MaterialFields({ engine, material }: { engine: Engine; material: number
       </label>
       <NumberField label="Metallic" value={metallic} step={0.05} min={0} max={1} onChange={(v) => set({ metallic: v })} />
       <NumberField label="Roughness" value={roughness} step={0.05} min={0} max={1} onChange={(v) => set({ roughness: v })} />
-      <p className="note">Viewport display values (Solid mode).</p>
+      <NumberField label="Alpha" value={a} step={0.05} min={0} max={1} onChange={(v) => set({ alpha: v })} />
+      <p className="note">Viewport display values (Solid mode). Alpha below 1 is drawn transparent.</p>
     </>
   );
 }
@@ -234,6 +235,7 @@ function SurfaceFields({ engine, material }: { engine: Engine; material: number 
       </label>
       <NumberField label="Metallic" value={input("Metallic")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Metallic", [v])} />
       <NumberField label="Roughness" value={input("Roughness")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Roughness", [v])} />
+      <NumberField label="Alpha" value={input("Alpha")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Alpha", [v])} />
       <label className="text-field">
         <span>Emission</span>
         <input

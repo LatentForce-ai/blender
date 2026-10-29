@@ -91,6 +91,18 @@ impl SolidMaterial {
     pub fn disney_roughness(&self) -> f32 {
         self.roughness.sqrt()
     }
+
+    /// Alpha below 1 is drawn blended after the opaque surfaces, like workbench's transparent
+    /// pipeline in Solid mode and EEVEE's "Blended" render method in Material Preview.
+    pub fn is_transparent(&self) -> bool {
+        self.alpha < 1.0
+    }
+}
+
+/// Orders transparent draws far to near by their view-space depth (`-z` is in front of the
+/// camera, so the most negative `z` is drawn first), as blended drawing needs.
+pub fn sort_back_to_front<T>(draws: &mut [(f32, T)]) {
+    draws.sort_by(|a, b| a.0.total_cmp(&b.0));
 }
 
 #[cfg(test)]
@@ -104,6 +116,32 @@ mod tests {
         }
         assert_eq!(ShadingType::from_identifier("RENDERED"), None);
         assert_eq!(ShadingType::default(), ShadingType::Solid);
+    }
+
+    #[test]
+    fn transparency_follows_alpha_in_both_modes() {
+        let mut material = Material::with_default_nodes();
+        assert!(!SolidMaterial::from(&material).is_transparent());
+        material.base_color[3] = 0.5;
+        assert!(SolidMaterial::from(&material).is_transparent());
+
+        let tree = material.node_tree.as_mut().unwrap();
+        let principled = tree.node_by_name("Principled BSDF").unwrap();
+        let preview = SolidMaterial::from(&shading::evaluate(&material).unwrap());
+        assert!(!preview.is_transparent(), "Material Preview reads the node's Alpha, not the viewport one");
+        let tree = material.node_tree.as_mut().unwrap();
+        tree.set_socket_value(principled, blenkernel::SocketInOut::Input, "Alpha", blenkernel::SocketValue::Float(0.3))
+            .unwrap();
+        let preview = SolidMaterial::from(&shading::evaluate(&material).unwrap());
+        assert!(preview.is_transparent());
+        assert_eq!(preview.alpha, 0.3);
+    }
+
+    #[test]
+    fn transparent_draws_go_far_to_near() {
+        let mut draws = vec![(-2.0, "near"), (-10.0, "far"), (-5.0, "middle")];
+        sort_back_to_front(&mut draws);
+        assert_eq!(draws.iter().map(|d| d.1).collect::<Vec<_>>(), ["far", "middle", "near"]);
     }
 
     #[test]
