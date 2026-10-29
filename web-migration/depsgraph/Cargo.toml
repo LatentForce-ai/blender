@@ -1,0 +1,14 @@
+[package]
+name = "depsgraph"
+version = "0.1.0"
+edition = "2021"
+description = "Thin Rust port of Blender's dependency graph on top of the blenkernel port (hackathon ticket HACK-2)"
+license = "GPL-3.0-or-later"
+publish = false
+
+# A plain library: it is linked into the one top-level .wasm together with blenkernel and render,
+# so all three share the same `Main`. It exposes no JavaScript API of its own.
+
+[dependencies]
+blenkernel = { path = "../blenkernel" }
+glam = "0.29"
