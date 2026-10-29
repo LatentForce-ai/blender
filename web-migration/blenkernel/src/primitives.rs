@@ -11,12 +11,17 @@ use glam::Vec3;
 
 use crate::mesh::Mesh;
 
+/// Builds a primitive shaded flat, as every `create_*_mesh` ends with
+/// `mesh_smooth_set(mesh, false)`.
 fn build(positions: Vec<Vec3>, face_sizes: impl IntoIterator<Item = i32>, corner_verts: Vec<i32>) -> Mesh {
     let mut face_offsets = vec![0];
     for size in face_sizes {
         face_offsets.push(face_offsets.last().unwrap() + size);
     }
-    Mesh::from_faces(positions, face_offsets, corner_verts).expect("primitive topology is valid")
+    let mut mesh =
+        Mesh::from_faces(positions, face_offsets, corner_verts).expect("primitive topology is valid");
+    mesh.set_smooth(false);
+    mesh
 }
 
 /// Box centered on the origin with 8 vertices and 6 quads
