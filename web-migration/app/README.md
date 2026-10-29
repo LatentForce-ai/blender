@@ -8,7 +8,7 @@ share one scene in one memory, and it is the only crate built with `wasm-pack`.
 | `../blenkernel` | HACK-1, HACK-9 | Linked: scenes, objects, meshes, materials |
 | `../render` | HACK-3 | Linked: Solid-mode viewport, WebGPU with WebGL2 fallback |
 | `../depsgraph` | HACK-2 | Linked: evaluates transforms and geometry each frame |
-| node shading | HACK-7 | Not linked yet (Material Preview / Rendered modes) |
+| `../shading` | HACK-7 | Linked: evaluates material node trees each frame (read through `Shading`; Solid mode still draws viewport values) |
 
 ## Build and run
 
@@ -27,7 +27,7 @@ vertices wave every frame. Drag to orbit, scroll to zoom.
 ## JavaScript API
 
 ```js
-import init, { BlenderMain, Depsgraph, Viewport, tick } from "./pkg/app.js";
+import init, { BlenderMain, Depsgraph, Shading, Viewport, tick } from "./pkg/app.js";
 
 await init();
 const viewport = await Viewport.create(canvas); // WebGPU, or WebGL2 where WebGPU is missing
@@ -35,13 +35,18 @@ const bmain = new BlenderMain();                // blenkernel's API: ../blenkern
 const scene = bmain.scene_add("Scene");
 // ... add objects, meshes and materials through bmain ...
 const depsgraph = new Depsgraph(scene);         // one per scene, kept across frames
+const shading = new Shading();                  // node-tree results, kept across frames
 
 const frame = () => {
-  tick(bmain, depsgraph, viewport);
+  tick(bmain, depsgraph, shading, viewport);
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);
 ```
+
+`Shading` has `updated()` (material handles whose result changed last frame), `material(m)`
+(`[r, g, b, alpha, metallic, roughness, emission_r, emission_g, emission_b]`) and
+`material_texture(m)` (image name or `undefined`).
 
 `Viewport` also has `backend()` (`"WebGPU"` or `"WebGL2"`), `resize(width, height)` in canvas
 pixels, `orbit(dx, dy)` in CSS pixels, and `zoom(steps)` in wheel notches (positive moves away).
@@ -52,7 +57,9 @@ Depend on it in `Cargo.toml` and call it from `tick` in `src/lib.rs`. Each frame
 
 1. evaluates the depsgraph (`Depsgraph::evaluate`), which consumes the scene's pending changes
    and returns what it recomputed;
-2. hands those updates to the renderer (`Viewport::apply_updates`), then draws the evaluated
+2. re-evaluates materials' node trees (`ShadingCache::refresh`), which compares results rather
+   than reading change flags;
+3. hands those updates to the renderer (`Viewport::apply_updates`), then draws the evaluated
    scene (`Viewport::draw`).
 
 The depsgraph drains `Main::take_changes`, so a new module reacts to its `Updates` or checks its
