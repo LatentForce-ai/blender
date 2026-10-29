@@ -6,14 +6,14 @@ use std::collections::{HashMap, HashSet};
 
 use blenkernel::{Main, Mesh, MeshId, ObjectId};
 use depsgraph::{Depsgraph, Updates};
-use glam::Vec2;
+use glam::{Mat4, Vec2};
 use shading::ShadingCache;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::camera::{CLIP_END, OrbitCamera};
 use crate::grid_pass::GridPass;
-use crate::material::{ShadingType, SolidMaterial};
+use crate::material::{ShadingType, SolidMaterial, sort_back_to_front};
 use crate::mesh_extract::{extract_surface, material_slot_count};
 use crate::solid_pass::{DEPTH_FORMAT, MeshBatch, ObjectBinding, SolidPass};
 use crate::studio_light::StudioLight;
@@ -24,6 +24,13 @@ const MSAA_SAMPLES: u32 = 4;
 
 /// One material slot of one object.
 type SlotKey = (ObjectId, usize);
+
+/// What to draw this frame: opaque slots in any order, transparent slots far to near.
+#[derive(Default)]
+struct DrawList {
+    opaque: Vec<(MeshId, SlotKey)>,
+    transparent: Vec<(MeshId, SlotKey)>,
+}
 
 /// Per-size render targets: multisampled colour (resolved into the canvas) and depth.
 struct FrameTargets {
@@ -173,7 +180,8 @@ impl Viewport {
         depsgraph: &Depsgraph,
         shading: &ShadingCache,
     ) -> Result<(), JsError> {
-        let draws = self.sync_scene(main, depsgraph, shading)?;
+        let view = self.camera.view();
+        let draws = self.sync_scene(main, depsgraph, shading, view)?;
         let Some(frame) = self.acquire_frame()? else {
             return Ok(());
         };
@@ -182,7 +190,6 @@ impl Viewport {
             ..Default::default()
         });
         let viewport_size = Vec2::new(self.config.width as f32, self.config.height as f32);
-        let view = self.camera.view();
         let projection = self.camera.projection(viewport_size.x / viewport_size.y);
         self.solid.set_view(&self.queue, view, projection);
         self.grid
@@ -195,13 +202,11 @@ impl Viewport {
             });
         {
             let mut pass = begin_viewport_pass(&mut encoder, &self.targets, &canvas_view);
-            self.solid.record(
-                &mut pass,
-                draws
-                    .iter()
-                    .map(|(mesh, key)| (&self.meshes[mesh], key.1, &self.objects[key])),
-            );
+            let slot = |(mesh, key): &(MeshId, SlotKey)| (&self.meshes[mesh], key.1, &self.objects[key]);
+            self.solid.record_opaque(&mut pass, draws.opaque.iter().map(slot));
             self.grid.record(&mut pass);
+            // After the grid, so it shows through transparent surfaces.
+            self.solid.record_transparent(&mut pass, draws.transparent.iter().map(slot));
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
@@ -209,14 +214,17 @@ impl Viewport {
     }
 
     /// Uploads missing meshes, and evaluated matrices and materials for every material slot of
-    /// every object; returns what to draw.
+    /// every object; returns what to draw, with transparent slots sorted for the camera `view`.
     fn sync_scene(
         &mut self,
         main: &Main,
         depsgraph: &Depsgraph,
         shading: &ShadingCache,
-    ) -> Result<Vec<(MeshId, SlotKey)>, JsError> {
-        let mut draws = Vec::new();
+        view: Mat4,
+    ) -> Result<DrawList, JsError> {
+        let mut opaque = Vec::new();
+        // View-space depth of the object's origin, as EEVEE sorts blended objects.
+        let mut transparent = Vec::new();
         for &object in depsgraph.objects() {
             let Some(mesh) = main.object(object)?.mesh() else {
                 continue;
@@ -227,6 +235,7 @@ impl Viewport {
             let model = depsgraph
                 .world_matrix(object)
                 .ok_or_else(|| JsError::new("depsgraph has no matrix for a scene object"))?;
+            let depth = (view * model.w_axis).z;
             for slot in 0..self.meshes[&mesh].slot_count() {
                 let material = match (self.shading_type, main.object_material(object, slot)?) {
                     (ShadingType::Solid, Some(material)) => SolidMaterial::from(main.material(material)?),
@@ -240,12 +249,18 @@ impl Viewport {
                     .or_insert_with(|| self.solid.object_binding(&self.device));
                 self.solid
                     .set_object(&self.queue, binding, model, &material);
-                draws.push((mesh, (object, slot)));
+                if material.is_transparent() {
+                    transparent.push((depth, (mesh, (object, slot))));
+                } else {
+                    opaque.push((mesh, (object, slot)));
+                }
             }
         }
-        let drawn: HashSet<SlotKey> = draws.iter().map(|&(_, key)| key).collect();
+        sort_back_to_front(&mut transparent);
+        let transparent: Vec<_> = transparent.into_iter().map(|(_, draw)| draw).collect();
+        let drawn: HashSet<SlotKey> = opaque.iter().chain(&transparent).map(|&(_, key)| key).collect();
         self.objects.retain(|key, _| drawn.contains(key));
-        Ok(draws)
+        Ok(DrawList { opaque, transparent })
     }
 
     /// Uploads `mesh` unless its batch is current; false for meshes without triangles. A batch

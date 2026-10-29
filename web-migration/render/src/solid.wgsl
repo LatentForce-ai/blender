@@ -151,5 +151,6 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     let n = normalize(select(-in.view_normal, in.view_normal, facing));
     let i = normalize(-in.view_position);
     let color = world_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
-    return vec4(color + object_data.emission, 1.0);
+    // Opaque slots have alpha 1; the blended pipeline uses it for "over" blending.
+    return vec4(color + object_data.emission, object_data.alpha);
 }
