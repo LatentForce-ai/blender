@@ -5,6 +5,15 @@
 struct ViewData {
     view_projection: mat4x4<f32>,
     view: mat4x4<f32>,
+    // 0: Solid (studio lights), 1: Material Preview (environment lighting).
+    shading_type: u32,
+}
+
+// Material Preview's environment (environment.rs): SH irradiance, already divided by pi.
+struct EnvironmentData {
+    irradiance: array<vec4<f32>, 9>,
+    // Highest mip level of `env_texture` (roughness 1).
+    max_level: f32,
 }
 
 struct LightData {
@@ -38,6 +47,9 @@ struct ObjectData {
 @group(0) @binding(0) var<uniform> view_data: ViewData;
 @group(0) @binding(1) var<uniform> world_data: WorldData;
 @group(1) @binding(0) var<uniform> object_data: ObjectData;
+@group(2) @binding(0) var env_texture: texture_2d<f32>;
+@group(2) @binding(1) var env_sampler: sampler;
+@group(2) @binding(2) var<uniform> env_data: EnvironmentData;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -144,13 +156,60 @@ fn world_lighting(base_color: vec3<f32>, roughness: f32, metallic: f32, n: vec3<
     return diffuse_light + specular_light;
 }
 
+// Blender's `direction_to_equirectangular`, with texture row 0 at +Z.
+fn direction_to_uv(d: vec3<f32>) -> vec2<f32> {
+    let u = -atan2(d.y, d.x) / 6.28318530718 + 0.5;
+    let v = 0.5 - atan2(d.z, length(d.xy)) / 3.14159265359;
+    return vec2(u, v);
+}
+
+fn irradiance(n: vec3<f32>) -> vec3<f32> {
+    let c = env_data.irradiance;
+    return c[0].rgb * 0.282095
+        + c[1].rgb * (0.488603 * n.y) + c[2].rgb * (0.488603 * n.z) + c[3].rgb * (0.488603 * n.x)
+        + c[4].rgb * (1.092548 * n.x * n.y) + c[5].rgb * (1.092548 * n.y * n.z)
+        + c[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0)) + c[7].rgb * (1.092548 * n.x * n.z)
+        + c[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y));
+}
+
+// Split-sum environment BRDF, analytic fit [Karis 2014, "Physically Based Shading on Mobile"],
+// standing in for EEVEE's lookup table.
+fn env_brdf_approx(f0: vec3<f32>, roughness: f32, n_dot_v: f32) -> vec3<f32> {
+    let c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    let c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    let r = roughness * c0 + c1;
+    let a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
+    let ab = vec2(-1.04, 1.04) * a004 + r.zw;
+    return f0 * ab.x + ab.y;
+}
+
+// Material Preview: diffuse from SH irradiance plus specular from the prefiltered environment.
+// `n` and `i` are view space; the environment is in world space.
+fn environment_lighting(base_color: vec3<f32>, disney_roughness: f32, metallic: f32, n: vec3<f32>, i: vec3<f32>) -> vec3<f32> {
+    let to_world = transpose(mat3x3(view_data.view[0].xyz, view_data.view[1].xyz, view_data.view[2].xyz));
+    let world_n = normalize(to_world * n);
+    let world_v = normalize(to_world * i);
+    // The object uniform carries workbench's sqrt-remapped roughness; undo it.
+    let roughness = disney_roughness * disney_roughness;
+    let r = reflect(-world_v, world_n);
+    let specular = env_brdf_approx(mix(vec3(0.04), base_color, metallic), roughness, saturate(dot(world_n, world_v)));
+    let reflected = textureSampleLevel(env_texture, env_sampler, direction_to_uv(r), roughness * env_data.max_level).rgb;
+    let diffuse = base_color * (1.0 - metallic) * irradiance(world_n);
+    return diffuse * (vec3(1.0) - specular) + reflected * specular;
+}
+
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     let facing = front_facing != (object_data.mirrored != 0u);
     // Back faces are lit from their own side, as workbench's `normal_encode` does.
     let n = normalize(select(-in.view_normal, in.view_normal, facing));
     let i = normalize(-in.view_position);
-    let color = world_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
+    var color: vec3<f32>;
+    if (view_data.shading_type == 1u) {
+        color = environment_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
+    } else {
+        color = world_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
+    }
     // Opaque slots have alpha 1; the blended pipeline uses it for "over" blending.
     return vec4(color + object_data.emission, object_data.alpha);
 }

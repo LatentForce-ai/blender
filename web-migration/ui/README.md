@@ -6,7 +6,8 @@ layout:
 - **Toolbar**: add Cube / UV Sphere / Plane / Grid / Empty, and Delete (or press X / Delete).
   Undo, Redo, Save and Open are shown disabled until HACK-8 lands.
 - **3D Viewport**: the render crate's viewport (WebGPU, WebGL2 fallback), with a Solid /
-  Material Preview toggle in its header. Drag to orbit, scroll to zoom.
+  Material Preview toggle in its header. Material Preview is lit by a built-in studio
+  environment, or any Radiance `.hdr` via **Load HDRI…**. Drag to orbit, scroll to zoom.
 - **Outliner**: the scene's objects nested by parent. Click to select, double-click to rename.
 - **Properties**: Object (name, location, rotation in degrees, scale, parent), Material (slots,
   viewport color / metallic / roughness for Solid, the Principled BSDF's base color / metallic /

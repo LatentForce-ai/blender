@@ -52,6 +52,9 @@ button.small { padding: 1px 6px; font-size: 11px; }
   background: var(--header); border-bottom: 1px solid var(--border); color: var(--text-dim);
 }
 .viewport-header .shading-toggle { display: flex; }
+.viewport-header .environment { display: flex; gap: 4px; }
+.viewport-header label.button { background: var(--field); border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+.viewport-header label.button:hover { background: var(--field-hover); }
 .viewport-header .shading-toggle button { border-radius: 0; padding: 1px 8px; }
 .viewport-header .shading-toggle button:first-child { border-radius: 4px 0 0 4px; }
 .viewport-header .shading-toggle button:last-child { border-radius: 0 4px 4px 0; }

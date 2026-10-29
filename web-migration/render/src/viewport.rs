@@ -12,6 +12,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::camera::{CLIP_END, OrbitCamera};
+use crate::environment::{Environment, parse_radiance_hdr};
 use crate::grid_pass::GridPass;
 use crate::material::{ShadingType, SolidMaterial, sort_back_to_front};
 use crate::mesh_extract::{extract_surface, material_slot_count};
@@ -97,7 +98,7 @@ impl Viewport {
 
         Ok(Viewport {
             targets: create_targets(&device, &config, view_format, sample_count),
-            solid: SolidPass::new(&device, view_format, sample_count, &StudioLight::DEFAULT),
+            solid: SolidPass::new(&device, &queue, view_format, sample_count, &StudioLight::DEFAULT),
             grid: GridPass::new(&device, view_format, sample_count),
             surface,
             device,
@@ -149,6 +150,19 @@ impl Viewport {
         self.camera.zoom(steps);
     }
 
+    /// Lights Material Preview with a Radiance `.hdr` (equirectangular, Blender's world
+    /// orientation) instead of the built-in studio environment.
+    pub fn set_environment_hdr(&mut self, bytes: &[u8]) -> Result<(), JsError> {
+        let env = parse_radiance_hdr(bytes).map_err(|e| JsError::new(&e))?;
+        self.solid.set_environment(&self.device, &self.queue, &env);
+        Ok(())
+    }
+
+    /// Back to the built-in studio environment.
+    pub fn reset_environment(&mut self) {
+        self.solid.set_environment(&self.device, &self.queue, &Environment::studio());
+    }
+
     /// `"SOLID"` or `"MATERIAL"` (Material Preview), as Blender's `shading.type`.
     pub fn shading_type(&self) -> String {
         self.shading_type.identifier().to_owned()
@@ -191,7 +205,7 @@ impl Viewport {
         });
         let viewport_size = Vec2::new(self.config.width as f32, self.config.height as f32);
         let projection = self.camera.projection(viewport_size.x / viewport_size.y);
-        self.solid.set_view(&self.queue, view, projection);
+        self.solid.set_view(&self.queue, view, projection, self.shading_type);
         self.grid
             .set_view(&self.queue, view, projection, CLIP_END, viewport_size);
 

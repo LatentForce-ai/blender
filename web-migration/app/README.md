@@ -48,7 +48,8 @@ requestAnimationFrame(frame);
 (`[r, g, b, alpha, metallic, roughness, emission_r, emission_g, emission_b]`) and
 `material_texture(m)` (image name or `undefined`).
 
-`Viewport` also has `set_shading_type("SOLID" | "MATERIAL")` and `shading_type()`, `backend()` (`"WebGPU"` or `"WebGL2"`), `resize(width, height)` in canvas
+`Viewport` also has `set_shading_type("SOLID" | "MATERIAL")` and `shading_type()`,
+`set_environment_hdr(bytes)` and `reset_environment()` for Material Preview's lighting, `backend()` (`"WebGPU"` or `"WebGL2"`), `resize(width, height)` in canvas
 pixels, `orbit(dx, dy)` in CSS pixels, and `zoom(steps)` in wheel notches (positive moves away).
 
 ## Adding a module

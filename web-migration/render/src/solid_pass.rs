@@ -13,7 +13,8 @@ use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use wgpu::util::DeviceExt;
 
-use crate::material::SolidMaterial;
+use crate::environment::{Environment, Irradiance, LEVELS, prefiltered_levels};
+use crate::material::{ShadingType, SolidMaterial};
 use crate::mesh_extract::{CornerVertex, SurfaceGeometry};
 use crate::studio_light::StudioLight;
 use crate::uniforms::{bind_uniforms, uniform_buffer, uniform_layout};
@@ -36,6 +37,17 @@ const BLENDED: wgpu::BlendState = wgpu::BlendState {
 struct ViewData {
     view_projection: [[f32; 4]; 4],
     view: [[f32; 4]; 4],
+    shading_type: u32,
+    _padding: [u32; 3],
+}
+
+/// GPU layout of the shader's `EnvironmentData`.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct EnvironmentData {
+    irradiance: [[f32; 4]; 9],
+    max_level: f32,
+    _padding: [f32; 3],
 }
 
 /// GPU layout of workbench's `LightData`.
@@ -146,18 +158,150 @@ pub struct SolidPass {
     _world_uniform: wgpu::Buffer,
     frame_bind_group: wgpu::BindGroup,
     object_layout: wgpu::BindGroupLayout,
+    environment: EnvironmentBinding,
+}
+
+/// Material Preview's lighting: the prefiltered environment texture and SH irradiance.
+struct EnvironmentBinding {
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    uniform: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+impl EnvironmentBinding {
+    fn new(device: &wgpu::Device) -> EnvironmentBinding {
+        let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty,
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("environment"),
+            entries: &[
+                entry(0, wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                }),
+                entry(1, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
+                entry(2, wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                }),
+            ],
+        });
+        // Wrap around the equator, clamp at the poles; blend between roughness levels.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("environment"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let uniform = uniform_buffer::<EnvironmentData>(device, "environment");
+        // Replaced by `upload` straight away; a 1×1 placeholder keeps construction simple.
+        let placeholder = device.create_texture(&texture_descriptor(1, 1, 1));
+        let bind_group = Self::bind(device, &layout, &placeholder, &sampler, &uniform);
+        EnvironmentBinding { layout, sampler, uniform, bind_group }
+    }
+
+    fn bind(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        texture: &wgpu::Texture,
+        sampler: &wgpu::Sampler,
+        uniform: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let view = texture.create_view(&Default::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("environment"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
+            ],
+        })
+    }
+
+    /// Prefilters `env` and uploads every roughness level plus its irradiance.
+    fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, env: &Environment) {
+        let levels = prefiltered_levels(env);
+        let texture = device.create_texture(&texture_descriptor(levels[0].width, levels[0].height, LEVELS));
+        for (mip_level, level) in levels.iter().enumerate() {
+            // Rgba16Float texels as raw half-float bits.
+            let texels: Vec<u16> = level
+                .pixels
+                .iter()
+                .flat_map(|p| [p.x, p.y, p.z, 1.0])
+                .map(|v| half::f16::from_f32(v).to_bits())
+                .collect();
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip_level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&texels),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(level.width as u32 * 8),
+                    rows_per_image: None,
+                },
+                wgpu::Extent3d {
+                    width: level.width as u32,
+                    height: level.height as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        let Irradiance(coefficients) = Irradiance::from_environment(&levels[LEVELS - 1].resized(64, 32));
+        let data = EnvironmentData {
+            irradiance: coefficients.map(|c| c.extend(0.0).to_array()),
+            max_level: (LEVELS - 1) as f32,
+            _padding: [0.0; 3],
+        };
+        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&data));
+        self.bind_group = Self::bind(device, &self.layout, &texture, &self.sampler, &self.uniform);
+    }
+}
+
+fn texture_descriptor(width: usize, height: usize, mip_level_count: usize) -> wgpu::TextureDescriptor<'static> {
+    wgpu::TextureDescriptor {
+        label: Some("environment"),
+        size: wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: mip_level_count as u32,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    }
 }
 
 impl SolidPass {
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         color_format: wgpu::TextureFormat,
         sample_count: u32,
         studio: &StudioLight,
     ) -> SolidPass {
         let frame_layout = uniform_layout(device, "frame", 2);
         let object_layout = uniform_layout(device, "object", 1);
-        let layouts = [&frame_layout, &object_layout];
+        let mut environment = EnvironmentBinding::new(device);
+        environment.upload(device, queue, &Environment::studio());
+        let layouts = [&frame_layout, &object_layout, &environment.layout];
         let pipeline =
             |kind| create_pipeline(device, &layouts, color_format, sample_count, kind);
 
@@ -177,7 +321,13 @@ impl SolidPass {
             _world_uniform: world_uniform,
             frame_bind_group,
             object_layout,
+            environment,
         }
+    }
+
+    /// Replaces Material Preview's environment (prefiltering it takes tens of milliseconds).
+    pub fn set_environment(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, env: &Environment) {
+        self.environment.upload(device, queue, env);
     }
 
     pub fn object_binding(&self, device: &wgpu::Device) -> ObjectBinding {
@@ -190,10 +340,15 @@ impl SolidPass {
         }
     }
 
-    pub fn set_view(&self, queue: &wgpu::Queue, view: Mat4, projection: Mat4) {
+    pub fn set_view(&self, queue: &wgpu::Queue, view: Mat4, projection: Mat4, shading_type: ShadingType) {
         let view_data = ViewData {
             view_projection: (projection * view).to_cols_array_2d(),
             view: view.to_cols_array_2d(),
+            shading_type: match shading_type {
+                ShadingType::Solid => 0,
+                ShadingType::Material => 1,
+            },
+            _padding: [0; 3],
         };
         queue.write_buffer(&self.view_uniform, 0, bytemuck::bytes_of(&view_data));
     }
@@ -229,6 +384,7 @@ impl SolidPass {
     ) {
         pass.set_pipeline(&self.opaque);
         pass.set_bind_group(0, &self.frame_bind_group, &[]);
+        pass.set_bind_group(2, &self.environment.bind_group, &[]);
         for (batch, slot, binding) in draws {
             Self::draw_slot(pass, batch, slot, binding);
         }
@@ -241,6 +397,7 @@ impl SolidPass {
         draws: impl IntoIterator<Item = (&'a MeshBatch, usize, &'a ObjectBinding)>,
     ) {
         pass.set_bind_group(0, &self.frame_bind_group, &[]);
+        pass.set_bind_group(2, &self.environment.bind_group, &[]);
         for (batch, slot, binding) in draws {
             let (far_side, near_side) = if binding.mirrored {
                 (&self.blended_front_faces, &self.blended_back_faces)
