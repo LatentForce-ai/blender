@@ -14,6 +14,7 @@ blenkernel = { path = "../blenkernel" }
 console_error_panic_hook = "0.1.7"
 depsgraph = { path = "../depsgraph" }
 render = { path = "../render" }
+shading = { path = "../shading" }
 wasm-bindgen = "0.2.129"
 
 [profile.release]

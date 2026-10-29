@@ -25,6 +25,7 @@ dependencies = [
  "console_error_panic_hook",
  "depsgraph",
  "render",
+ "shading",
  "wasm-bindgen",
 ]
 
@@ -781,6 +782,14 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "shading"
+version = "0.1.0"
+dependencies = [
+ "blenkernel",
+ "serde",
 ]
 
 [[package]]
