@@ -1,10 +1,11 @@
 //! A 3D viewport bound to one canvas, drawing a blenkernel scene through WebGPU, or WebGL2
 //! where WebGPU is unavailable. JavaScript creates it and drives the camera; the top-level
-//! `app` crate passes it scene changes and asks it to draw.
+//! `app` crate passes it depsgraph updates and asks it to draw the evaluated scene.
 
 use std::collections::{HashMap, HashSet};
 
-use blenkernel::{Change, IdType, Main, MeshId, ObjectId, SceneId};
+use blenkernel::{Main, Mesh, MeshId, ObjectId};
+use depsgraph::{Depsgraph, Updates};
 use glam::Vec2;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -12,7 +13,7 @@ use web_sys::HtmlCanvasElement;
 use crate::camera::{CLIP_END, OrbitCamera};
 use crate::grid_pass::GridPass;
 use crate::material::SolidMaterial;
-use crate::mesh_extract::extract_surface;
+use crate::mesh_extract::{extract_surface, material_slot_count};
 use crate::solid_pass::{DEPTH_FORMAT, MeshBatch, ObjectBinding, SolidPass};
 use crate::studio_light::StudioLight;
 use crate::theme;
@@ -140,20 +141,18 @@ impl Viewport {
 }
 
 impl Viewport {
-    /// Drops GPU copies of changed meshes (from `Main::take_changes`), so the next `draw`
-    /// re-extracts them.
-    pub fn apply_changes(&mut self, changes: &[Change]) {
-        for change in changes {
-            if change.id_type == IdType::Mesh {
-                self.meshes.remove(&MeshId(change.handle));
-            }
+    /// Drops GPU copies of meshes the depsgraph re-evaluated, so the next `draw` re-extracts
+    /// them.
+    pub fn apply_updates(&mut self, updates: &Updates) {
+        for mesh in &updates.geometry {
+            self.meshes.remove(mesh);
         }
     }
 
-    /// Draws `scene` and the floor grid into the canvas. Skips the frame if the canvas is not
-    /// ready.
-    pub fn draw(&mut self, main: &Main, scene: SceneId) -> Result<(), JsError> {
-        let draws = self.sync_scene(main, scene)?;
+    /// Draws the depsgraph's evaluated scene and the floor grid into the canvas. Skips the
+    /// frame if the canvas is not ready.
+    pub fn draw(&mut self, main: &Main, depsgraph: &Depsgraph) -> Result<(), JsError> {
+        let draws = self.sync_scene(main, depsgraph)?;
         let Some(frame) = self.acquire_frame()? else {
             return Ok(());
         };
@@ -188,27 +187,24 @@ impl Viewport {
         Ok(())
     }
 
-    /// Uploads missing meshes, and matrices and materials for every material slot of every
-    /// object; returns what to draw.
+    /// Uploads missing meshes, and evaluated matrices and materials for every material slot of
+    /// every object; returns what to draw.
     fn sync_scene(
         &mut self,
         main: &Main,
-        scene: SceneId,
+        depsgraph: &Depsgraph,
     ) -> Result<Vec<(MeshId, SlotKey)>, JsError> {
         let mut draws = Vec::new();
-        for object in main.scene_objects(scene)? {
+        for &object in depsgraph.objects() {
             let Some(mesh) = main.object(object)?.mesh() else {
                 continue;
             };
-            if !self.meshes.contains_key(&mesh) {
-                let geometry = extract_surface(main.mesh(mesh)?);
-                if geometry.indices.is_empty() {
-                    continue;
-                }
-                self.meshes
-                    .insert(mesh, MeshBatch::upload(&self.device, &geometry));
+            if !self.ensure_batch(mesh, main.mesh(mesh)?) {
+                continue;
             }
-            let model = main.object_world_matrix(object)?;
+            let model = depsgraph
+                .world_matrix(object)
+                .ok_or_else(|| JsError::new("depsgraph has no matrix for a scene object"))?;
             for slot in 0..self.meshes[&mesh].slot_count() {
                 let material = match main.object_material(object, slot)? {
                     Some(material) => SolidMaterial::from(main.material(material)?),
@@ -226,6 +222,27 @@ impl Viewport {
         let drawn: HashSet<SlotKey> = draws.iter().map(|&(_, key)| key).collect();
         self.objects.retain(|key, _| drawn.contains(key));
         Ok(draws)
+    }
+
+    /// Uploads `mesh` unless its batch is current; false for meshes without triangles. A batch
+    /// with a different material count is stale, as in Blender's mesh batch cache.
+    fn ensure_batch(&mut self, mesh: MeshId, mesh_data: &Mesh) -> bool {
+        let slot_count = material_slot_count(mesh_data);
+        if self
+            .meshes
+            .get(&mesh)
+            .is_some_and(|batch| batch.slot_count() == slot_count)
+        {
+            return true;
+        }
+        let geometry = extract_surface(mesh_data);
+        if geometry.indices.is_empty() {
+            self.meshes.remove(&mesh);
+            return false;
+        }
+        self.meshes
+            .insert(mesh, MeshBatch::upload(&self.device, &geometry));
+        true
     }
 
     fn acquire_frame(&mut self) -> Result<Option<wgpu::SurfaceTexture>, JsError> {

@@ -59,11 +59,17 @@ pub fn extract_surface(mesh: &Mesh) -> SurfaceGeometry {
     }
 }
 
+/// Material slots a mesh draws with: one per slot, and one even without slots
+/// (`mesh_render_mat_len_get`).
+pub fn material_slot_count(mesh: &Mesh) -> usize {
+    mesh.materials().len().max(1)
+}
+
 /// Triangle indices grouped by material slot, so each slot draws as one range (`SortedFaceData`
 /// in `draw_cache_extract_mesh_render_data.cc`).
 fn triangles_by_slot(mesh: &Mesh) -> (Vec<u32>, Vec<Range<u32>>) {
     let tri_slots = mesh.tri_material_indices();
-    let mut slot_sizes = vec![0u32; mesh.materials().len().max(1)];
+    let mut slot_sizes = vec![0u32; material_slot_count(mesh)];
     for &slot in &tri_slots {
         slot_sizes[slot as usize] += 3;
     }

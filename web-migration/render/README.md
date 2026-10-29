@@ -1,7 +1,8 @@
 # render (Rust, WebGPU)
 
-The 3D viewport of the Blender web migration (HACK-3): draws a blenkernel scene the way Blender's
-default Solid viewport does, through WebGPU, falling back to WebGL2. It is a library; build and
+The 3D viewport of the Blender web migration (HACK-3): draws the depsgraph's evaluated scene
+(object list and world matrices) with blenkernel's meshes and materials, the way Blender's default
+Solid viewport does, through WebGPU, falling back to WebGL2. It is a library; build and
 run it through [`../app`](../app/README.md).
 
 Instead of porting `source/blender/gpu` and `draw` (about 384k lines) wholesale, this ports the

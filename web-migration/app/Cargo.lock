@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "blenkernel",
  "console_error_panic_hook",
+ "depsgraph",
  "render",
  "wasm-bindgen",
 ]
@@ -152,6 +153,14 @@ name = "crunchy"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
+
+[[package]]
+name = "depsgraph"
+version = "0.1.0"
+dependencies = [
+ "blenkernel",
+ "glam",
+]
 
 [[package]]
 name = "dispatch2"
@@ -699,6 +708,7 @@ version = "0.1.0"
 dependencies = [
  "blenkernel",
  "bytemuck",
+ "depsgraph",
  "glam",
  "wasm-bindgen",
  "wasm-bindgen-futures",

@@ -7,7 +7,7 @@ share one scene in one memory, and it is the only crate built with `wasm-pack`.
 |---|---|---|
 | `../blenkernel` | HACK-1, HACK-9 | Linked: scenes, objects, meshes, materials |
 | `../render` | HACK-3 | Linked: Solid-mode viewport, WebGPU with WebGL2 fallback |
-| `../depsgraph` | HACK-2 | Not linked yet |
+| `../depsgraph` | HACK-2 | Linked: evaluates transforms and geometry each frame |
 | node shading | HACK-7 | Not linked yet (Material Preview / Rendered modes) |
 
 ## Build and run
@@ -27,16 +27,17 @@ vertices wave every frame. Drag to orbit, scroll to zoom.
 ## JavaScript API
 
 ```js
-import init, { BlenderMain, Viewport, tick } from "./pkg/app.js";
+import init, { BlenderMain, Depsgraph, Viewport, tick } from "./pkg/app.js";
 
 await init();
 const viewport = await Viewport.create(canvas); // WebGPU, or WebGL2 where WebGPU is missing
 const bmain = new BlenderMain();                // blenkernel's API: ../blenkernel/README.md
 const scene = bmain.scene_add("Scene");
 // ... add objects, meshes and materials through bmain ...
+const depsgraph = new Depsgraph(scene);         // one per scene, kept across frames
 
 const frame = () => {
-  tick(bmain, viewport, scene);
+  tick(bmain, depsgraph, viewport);
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);
@@ -49,8 +50,10 @@ pixels, `orbit(dx, dy)` in CSS pixels, and `zoom(steps)` in wheel notches (posit
 
 Depend on it in `Cargo.toml` and call it from `tick` in `src/lib.rs`. Each frame `tick`:
 
-1. takes the scene's pending changes once (`Main::take_changes`), so every module that caches
-   derived data sees the same list;
-2. hands them to the renderer (`Viewport::apply_changes`), then draws (`Viewport::draw`).
+1. evaluates the depsgraph (`Depsgraph::evaluate`), which consumes the scene's pending changes
+   and returns what it recomputed;
+2. hands those updates to the renderer (`Viewport::apply_updates`), then draws the evaluated
+   scene (`Viewport::draw`).
 
-Depsgraph evaluation goes between the two steps. Modules work on blenkernel's `Main` directly.
+The depsgraph drains `Main::take_changes`, so a new module reacts to its `Updates` or checks its
+own inputs rather than reading the change list. Modules work on blenkernel's `Main` directly.
