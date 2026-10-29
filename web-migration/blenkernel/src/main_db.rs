@@ -12,6 +12,7 @@ use glam::Mat4;
 use crate::collection::{Collection, CollectionId};
 use crate::error::BkeError;
 use crate::id::{recalc, truncate_name, IdHeader, IdType, MAX_NAME_BYTES};
+use crate::image::{Image, ImageId};
 use crate::material::{Material, MaterialId};
 use crate::mesh::{Mesh, MeshId};
 use crate::object::{Object, ObjectData, ObjectId};
@@ -105,6 +106,12 @@ impl DataBlock for Material {
     }
 }
 
+impl DataBlock for Image {
+    fn header_mut(&mut self) -> &mut IdHeader {
+        &mut self.id
+    }
+}
+
 impl DataBlock for Collection {
     fn header_mut(&mut self) -> &mut IdHeader {
         &mut self.id
@@ -151,6 +158,7 @@ fn default_name(id_type: IdType) -> &'static str {
         IdType::Mesh => "Mesh",
         IdType::Collection => "Collection",
         IdType::Material => "Material",
+        IdType::Image => "Image",
     }
 }
 
@@ -177,6 +185,7 @@ pub struct Main {
     meshes: Arena<Mesh>,
     collections: Arena<Collection>,
     materials: Arena<Material>,
+    images: Arena<Image>,
     names: NameMap,
     last_session_uid: u32,
 }
@@ -374,6 +383,35 @@ impl Main {
             return Ok(None);
         }
         Ok(slots[slot.min(slots.len() - 1)])
+    }
+
+    // ---------------------------------------------------------------- Images
+
+    /// `BKE_image_add_from_imbuf`: a new image from decoded pixels (see [`Image::new`]).
+    /// Image Texture nodes refer to it by name through their `image` property.
+    pub fn image_add(&mut self, name: &str, mut image: Image) -> ImageId {
+        image.id = self.new_id(IdType::Image, name);
+        ImageId(self.images.insert(image))
+    }
+
+    pub fn image(&self, image: ImageId) -> Result<&Image, BkeError> {
+        self.images.get(image.0).ok_or(invalid(IdType::Image, image.0))
+    }
+
+    pub fn images(&self) -> impl Iterator<Item = (ImageId, &Image)> {
+        self.images.iter().map(|(h, i)| (ImageId(h), i))
+    }
+
+    /// The image an Image Texture node's `image` property names, if it exists.
+    pub fn image_by_name(&self, name: &str) -> Option<ImageId> {
+        self.images().find(|(_, i)| i.id.name == name).map(|(id, _)| id)
+    }
+
+    /// Remove an image. Nodes still naming it draw as a missing texture, as in Blender.
+    pub fn image_remove(&mut self, image: ImageId) -> Result<(), BkeError> {
+        let removed = self.images.remove(image.0).ok_or(invalid(IdType::Image, image.0))?;
+        self.names.release(IdType::Image, &removed.id.name);
+        Ok(())
     }
 
     fn remove_material_user(&mut self, material: MaterialId) {
@@ -664,6 +702,7 @@ impl Main {
             IdType::Mesh => self.meshes.get_mut(handle).map(|m| &mut m.id),
             IdType::Collection => self.collections.get_mut(handle).map(|c| &mut c.id),
             IdType::Material => self.materials.get_mut(handle).map(|m| &mut m.id),
+            IdType::Image => self.images.get_mut(handle).map(|i| &mut i.id),
         };
         header.ok_or(invalid(id_type, handle))
     }
@@ -685,7 +724,7 @@ impl Main {
     }
 
     /// Return every data-block with pending update flags and clear them. The depsgraph calls
-    /// this once per frame. Order: scenes, objects, meshes, collections, materials.
+    /// this once per frame. Order: scenes, objects, meshes, collections, materials, images.
     pub fn take_changes(&mut self) -> Vec<Change> {
         fn drain<T: DataBlock>(arena: &mut Arena<T>, id_type: IdType, out: &mut Vec<Change>) {
             for (handle, block) in arena.iter_mut() {
@@ -702,6 +741,7 @@ impl Main {
         drain(&mut self.meshes, IdType::Mesh, &mut changes);
         drain(&mut self.collections, IdType::Collection, &mut changes);
         drain(&mut self.materials, IdType::Material, &mut changes);
+        drain(&mut self.images, IdType::Image, &mut changes);
         changes
     }
 }

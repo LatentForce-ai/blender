@@ -21,8 +21,8 @@ export type ShadingType = "SOLID" | "MATERIAL";
 /// `BlenderMain.material_node_tree_json`, the parts the UI reads.
 interface NodeTreeJson {
   output_node: number | null;
-  nodes: { id: number; idname: string }[];
-  links: { from_node: number; to_node: number; to_socket: string }[];
+  nodes: { id: number; idname: string; properties: Record<string, string> }[];
+  links: { from_node: number; from_socket: string; to_node: number; to_socket: string }[];
 }
 
 export interface ObjectInfo {
@@ -258,10 +258,45 @@ export class Engine {
   /// properties show as the "Surface" panel. Undefined for other surface setups.
   surfaceBsdf(material: number): number | undefined {
     if (!this.bmain.material_has_node_tree(material)) return undefined;
-    const tree = JSON.parse(this.bmain.material_node_tree_json(material)) as NodeTreeJson;
+    const tree = this.nodeTree(material);
     const link = tree.links.find((l) => l.to_node === tree.output_node && l.to_socket === "Surface");
     const node = tree.nodes.find((n) => n.id === link?.from_node);
     return node?.idname === "ShaderNodeBsdfPrincipled" ? node.id : undefined;
+  }
+
+  private nodeTree(material: number): NodeTreeJson {
+    return JSON.parse(this.bmain.material_node_tree_json(material)) as NodeTreeJson;
+  }
+
+  /// The Image Texture linked into a node's Base Color, with the image it names (HACK-14).
+  baseColorTexture(material: number, bsdf: number): { node: number; image: string } | undefined {
+    const tree = this.nodeTree(material);
+    const link = tree.links.find((l) => l.to_node === bsdf && l.to_socket === "Base Color");
+    const node = tree.nodes.find((n) => n.id === link?.from_node);
+    if (node?.idname !== "ShaderNodeTexImage" || link?.from_socket !== "Color") return undefined;
+    return { node: node.id, image: node.properties.image ?? "" };
+  }
+
+  /// Decode an image file in the browser, add it as a blenkernel Image, and feed it into the
+  /// node's Base Color through an Image Texture node, as Blender's "Image Texture" link does.
+  async setBaseColorTexture(material: number, bsdf: number, file: File) {
+    const bitmap = await createImageBitmap(file, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    this.edit(() => {
+      const b = this.bmain;
+      const image = b.image_add(file.name, bitmap.width, bitmap.height, new Uint8Array(pixels.buffer));
+      const node = this.baseColorTexture(material, bsdf)?.node ?? b.material_node_add(material, "ShaderNodeTexImage");
+      b.material_node_set_property(material, node, "image", b.image_name(image));
+      b.material_link_add(material, node, "Color", bsdf, "Base Color");
+    });
+  }
+
+  /// Unlink the texture so Base Color uses its own colour again (the node stays, as in Blender).
+  removeBaseColorTexture(material: number, bsdf: number) {
+    this.edit(() => this.bmain.material_link_remove(material, bsdf, "Base Color"));
   }
 
   /// Set an unlinked node input's value (1 float, or 3 for vectors, 4 for colours).

@@ -232,3 +232,46 @@ fn per_face_material_indices() {
     assert!(matches!(cube.set_material_indices(vec![0; 3]), Err(BkeError::LengthMismatch { .. })));
     assert!(matches!(cube.set_material_indices(vec![-1; 6]), Err(BkeError::InvalidValue(_))));
 }
+
+#[test]
+fn images_are_data_blocks_found_by_name() {
+    use blenkernel::{Image, ImageId};
+    let mut bmain = Main::new();
+    let pixels = vec![255u8; 2 * 2 * 4];
+    let a = bmain.image_add("bricks.png", Image::new(2, 2, pixels.clone()).unwrap());
+    let b = bmain.image_add("bricks.png", Image::new(2, 2, pixels).unwrap());
+    assert_eq!(bmain.image(b).unwrap().id.name, "bricks.png.001");
+    assert_eq!(bmain.image_by_name("bricks.png"), Some(a));
+    assert_eq!(bmain.image_by_name("missing.png"), None);
+    assert_eq!(bmain.image(a).unwrap().pixels().len(), 16);
+
+    // New images report a change, like every new data-block.
+    assert!(bmain.take_changes().iter().any(|c| c.id_type == IdType::Image && c.handle == a.0));
+
+    assert!(matches!(Image::new(2, 2, vec![0; 3]), Err(BkeError::LengthMismatch { .. })));
+    assert!(matches!(Image::new(0, 2, vec![]), Err(BkeError::InvalidValue(_))));
+
+    bmain.image_remove(a).unwrap();
+    assert_eq!(bmain.image_by_name("bricks.png"), None);
+    assert!(bmain.image(ImageId(a.0)).is_err());
+    assert_eq!(bmain.images().count(), 1);
+}
+
+#[test]
+fn primitives_have_a_uv_map_like_blender() {
+    for mesh in [
+        primitives::cube(Vec3::splat(2.0)),
+        primitives::grid(3, 4, 2.0, 2.0),
+        primitives::uv_sphere(1.0, 32, 16),
+    ] {
+        let uvs = mesh.uv_map().expect("UVMap");
+        assert_eq!(uvs.len(), mesh.corners_num());
+        assert!(uvs.iter().flatten().all(|c| (0.0..=1.0).contains(c)));
+    }
+    // Grid corners span the full square; the sphere's top pole is at v = 1.
+    let grid = primitives::grid(3, 3, 2.0, 2.0);
+    let uvs = grid.uv_map().unwrap();
+    assert!(uvs.contains(&[0.0, 0.0]) && uvs.contains(&[1.0, 1.0]));
+    let sphere = primitives::uv_sphere(1.0, 8, 4);
+    assert_eq!(sphere.uv_map().unwrap()[0], [0.5 / 8.0, 1.0]);
+}

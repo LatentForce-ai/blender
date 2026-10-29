@@ -9,11 +9,17 @@ use std::f32::consts::PI;
 
 use glam::Vec3;
 
-use crate::mesh::Mesh;
+use crate::attribute::{AttrDomain, Attribute, AttributeData};
+use crate::mesh::{Mesh, UV_MAP};
 
 /// Builds a primitive shaded flat, as every `create_*_mesh` ends with
-/// `mesh_smooth_set(mesh, false)`.
-fn build(positions: Vec<Vec3>, face_sizes: impl IntoIterator<Item = i32>, corner_verts: Vec<i32>) -> Mesh {
+/// `mesh_smooth_set(mesh, false)`, with a `"UVMap"` (one UV per corner) as `calc_uvs` adds.
+fn build(
+    positions: Vec<Vec3>,
+    face_sizes: impl IntoIterator<Item = i32>,
+    corner_verts: Vec<i32>,
+    uvs: Vec<[f32; 2]>,
+) -> Mesh {
     let mut face_offsets = vec![0];
     for size in face_sizes {
         face_offsets.push(face_offsets.last().unwrap() + size);
@@ -21,8 +27,17 @@ fn build(positions: Vec<Vec3>, face_sizes: impl IntoIterator<Item = i32>, corner
     let mut mesh =
         Mesh::from_faces(positions, face_offsets, corner_verts).expect("primitive topology is valid");
     mesh.set_smooth(false);
+    mesh.add_attribute(Attribute {
+        name: UV_MAP.into(),
+        domain: AttrDomain::Corner,
+        data: AttributeData::Float2(uvs),
+    })
+    .expect("one UV per corner");
     mesh
 }
+
+/// UVs of a quad's four corners covering the whole 0–1 square.
+const QUAD_UVS: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
 
 /// Box centered on the origin with 8 vertices and 6 quads
 /// (`create_cuboid_mesh(size, 2, 2, 2)`). Blender's default cube is `size = 2`.
@@ -47,7 +62,8 @@ pub fn cube(size: Vec3) -> Mesh {
         0, 4, 6, 2, // -X
         1, 3, 7, 5, // +X
     ];
-    build(positions, [4; 6], corner_verts)
+    // Each face gets the full image; Blender's cube unwraps into a cross instead.
+    build(positions, [4; 6], corner_verts, QUAD_UVS.repeat(6))
 }
 
 /// Flat grid in the XY plane centered on the origin (`create_grid_mesh`).
@@ -69,14 +85,17 @@ pub fn grid(verts_x: u32, verts_y: u32, size_x: f32, size_y: f32) -> Mesh {
     }
 
     let mut corner_verts = Vec::with_capacity((edges_x * edges_y * 4) as usize);
+    let mut uvs = Vec::with_capacity(corner_verts.capacity());
+    let uv = |x: i32, y: i32| [x as f32 / edges_x as f32, y as f32 / edges_y as f32];
     for x in 0..edges_x {
         for y in 0..edges_y {
             let v = x * verts_y + y;
             let v_next_x = (x + 1) * verts_y + y;
             corner_verts.extend([v, v_next_x, v_next_x + 1, v + 1]);
+            uvs.extend([uv(x, y), uv(x + 1, y), uv(x + 1, y + 1), uv(x, y + 1)]);
         }
     }
-    build(positions, std::iter::repeat(4).take((edges_x * edges_y) as usize), corner_verts)
+    build(positions, std::iter::repeat(4).take((edges_x * edges_y) as usize), corner_verts, uvs)
 }
 
 /// UV sphere centered on the origin (`create_uv_sphere_mesh`). Blender's defaults are
@@ -102,10 +121,16 @@ pub fn uv_sphere(radius: f32, segments: u32, rings: u32) -> Mesh {
     let next = |segment: i32| if segment == segments - 1 { 0 } else { segment + 1 };
     let mut corner_verts = Vec::new();
     let mut face_sizes = Vec::new();
+    // Blender's sphere unwrap: u around the segments (the seam gets its own u = 1), v from the
+    // bottom pole (0) to the top (1); pole corners sit mid-segment.
+    let mut uvs = Vec::new();
+    let uv = |segment: f32, ring: i32| [segment / segments as f32, 1.0 - ring as f32 / rings as f32];
 
     // Triangles around the top pole.
     for segment in 0..segments {
         corner_verts.extend([0, 1 + segment, 1 + next(segment)]);
+        let s = segment as f32;
+        uvs.extend([uv(s + 0.5, 0), uv(s, 1), uv(s + 1.0, 1)]);
         face_sizes.push(3);
     }
     // Quads between rings.
@@ -119,6 +144,8 @@ pub fn uv_sphere(radius: f32, segments: u32, rings: u32) -> Mesh {
                 next_ring_start + next(segment),
                 ring_start + next(segment),
             ]);
+            let s = segment as f32;
+            uvs.extend([uv(s, ring), uv(s, ring + 1), uv(s + 1.0, ring + 1), uv(s + 1.0, ring)]);
             face_sizes.push(4);
         }
     }
@@ -126,8 +153,10 @@ pub fn uv_sphere(radius: f32, segments: u32, rings: u32) -> Mesh {
     let last_ring_start = last_vert - segments;
     for segment in 0..segments {
         corner_verts.extend([last_vert, last_ring_start + next(segment), last_ring_start + segment]);
+        let s = segment as f32;
+        uvs.extend([uv(s + 0.5, rings), uv(s + 1.0, rings - 1), uv(s, rings - 1)]);
         face_sizes.push(3);
     }
 
-    build(positions, face_sizes, corner_verts)
+    build(positions, face_sizes, corner_verts, uvs)
 }

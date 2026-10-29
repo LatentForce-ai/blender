@@ -14,6 +14,8 @@ use bytemuck::{Pod, Zeroable};
 pub struct CornerVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
+    /// The `"UVMap"` coordinate, or 0 when the mesh has none.
+    pub uv: [f32; 2],
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -34,6 +36,7 @@ pub fn extract_surface(mesh: &Mesh) -> SurfaceGeometry {
     let face_normals = mesh.face_normals();
     let vert_normals = mesh.vert_normals();
     let sharp_faces = sharp_faces(mesh);
+    let uvs = mesh.uv_map();
 
     let mut vertices = Vec::with_capacity(mesh.corners_num());
     for face in 0..mesh.faces_num() {
@@ -48,6 +51,7 @@ pub fn extract_surface(mesh: &Mesh) -> SurfaceGeometry {
             vertices.push(CornerVertex {
                 position: positions[vert].to_array(),
                 normal: normal.to_array(),
+                uv: uvs.map_or([0.0; 2], |uvs| uvs[corner]),
             });
         }
     }
@@ -128,6 +132,14 @@ mod tests {
                 .iter()
                 .all(|&i| (i as usize) < surface.vertices.len())
         );
+    }
+
+    #[test]
+    fn corners_carry_the_uv_map() {
+        let mesh = primitives::grid(2, 2, 2.0, 2.0);
+        let geometry = extract_surface(&mesh);
+        let uvs: Vec<[f32; 2]> = geometry.vertices.iter().map(|v| v.uv).collect();
+        assert_eq!(uvs, mesh.uv_map().unwrap());
     }
 
     #[test]

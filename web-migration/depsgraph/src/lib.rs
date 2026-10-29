@@ -137,7 +137,8 @@ impl Depsgraph {
                 }
                 // Scenes and collections only carry RELATIONS, handled above. Materials carry
                 // SHADING, which the shading evaluator (HACK-7) will consume; nothing here uses it yet.
-                IdType::Scene | IdType::Collection | IdType::Material => {}
+                // Images (HACK-14) are immutable once added; render caches them by handle.
+                IdType::Scene | IdType::Collection | IdType::Material | IdType::Image => {}
             }
         }
 

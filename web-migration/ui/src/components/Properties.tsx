@@ -220,17 +220,43 @@ function SurfaceFields({ engine, material }: { engine: Engine; material: number 
   const input = (socket: string) => [...b.material_node_input(material, bsdf, socket)];
   const set = (socket: string, values: number[]) => engine.setNodeInput(material, bsdf, socket, values);
   const baseColor = input("Base Color");
+  const texture = engine.baseColorTexture(material, bsdf);
   const emissionColor = input("Emission Color");
 
   return (
     <>
       <h4 className="subsection">Surface · Principled BSDF</h4>
-      <label className="text-field">
-        <span>Base Color</span>
+      {texture ? (
+        <div className="text-field">
+          <span>Base Color</span>
+          <div className="texture">
+            <span title="Image Texture → Base Color">{texture.image || "(no image)"}</span>
+            <button className="small" onClick={() => engine.removeBaseColorTexture(material, bsdf)} title="Unlink the texture">
+              ×
+            </button>
+          </div>
+        </div>
+      ) : (
+        <label className="text-field">
+          <span>Base Color</span>
+          <input
+            type="color"
+            value={linearToHex([baseColor[0], baseColor[1], baseColor[2]])}
+            onChange={(e) => set("Base Color", [...hexToLinear(e.target.value), baseColor[3]])}
+          />
+        </label>
+      )}
+      <label className="button small texture-load" title="Use an image as the Base Color (Image Texture node)">
+        {texture ? "Replace texture…" : "Texture…"}
         <input
-          type="color"
-          value={linearToHex([baseColor[0], baseColor[1], baseColor[2]])}
-          onChange={(e) => set("Base Color", [...hexToLinear(e.target.value), baseColor[3]])}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) engine.setBaseColorTexture(material, bsdf, file);
+            e.target.value = "";
+          }}
         />
       </label>
       <NumberField label="Metallic" value={input("Metallic")[0]} step={0.05} min={0} max={1} onChange={(v) => set("Metallic", [v])} />

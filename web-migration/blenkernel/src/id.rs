@@ -10,6 +10,7 @@ pub enum IdType {
     Mesh = 2,
     Collection = 3,
     Material = 4,
+    Image = 5,
 }
 
 impl IdType {
@@ -22,6 +23,7 @@ impl IdType {
             IdType::Mesh => "ME",
             IdType::Collection => "GR",
             IdType::Material => "MA",
+            IdType::Image => "IM",
         }
     }
 }

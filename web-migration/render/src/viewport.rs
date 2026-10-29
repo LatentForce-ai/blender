@@ -255,7 +255,21 @@ impl Viewport {
                     (ShadingType::Solid, Some(material)) => SolidMaterial::from(main.material(material)?),
                     (ShadingType::Solid, None) => SolidMaterial::default(),
                     // Empty slots get shading's default surface, as Blender's EEVEE does.
-                    (ShadingType::Material, _) => SolidMaterial::from(shading.object_slot(main, object, slot)),
+                    (ShadingType::Material, _) => {
+                        let shaded = shading.object_slot(main, object, slot);
+                        let mut material = SolidMaterial::from(shaded);
+                        if let Some(name) = &shaded.base_color_texture {
+                            match main.image_by_name(name) {
+                                Some(id) => {
+                                    self.solid.ensure_texture(&self.device, &self.queue, id, main.image(id)?);
+                                    material.texture = Some(id);
+                                }
+                                // A node naming a missing image: Blender's magenta.
+                                None => material.base_color = [1.0, 0.0, 1.0],
+                            }
+                        }
+                        material
+                    }
                 };
                 let binding = self
                     .objects
@@ -270,6 +284,7 @@ impl Viewport {
                 }
             }
         }
+        self.solid.retain_textures(|id| main.image(id).is_ok());
         sort_back_to_front(&mut transparent);
         let transparent: Vec<_> = transparent.into_iter().map(|(_, draw)| draw).collect();
         let drawn: HashSet<SlotKey> = opaque.iter().chain(&transparent).map(|&(_, key)| key).collect();
