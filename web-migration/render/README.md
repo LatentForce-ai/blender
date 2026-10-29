@@ -1,0 +1,38 @@
+# render (Rust, WebGPU)
+
+The 3D viewport of the Blender web migration (HACK-3): draws a blenkernel scene the way Blender's
+default Solid viewport does, through WebGPU, falling back to WebGL2. It is a library; build and
+run it through [`../app`](../app/README.md).
+
+Instead of porting `source/blender/gpu` and `draw` (about 384k lines) wholesale, this ports the
+parts the default viewport uses, onto [`wgpu`](https://wgpu.rs).
+
+## Layout
+
+| File | Ported from (`source/blender/…`) |
+|---|---|
+| `src/mesh_extract.rs` | `draw/intern/draw_cache_impl_mesh.cc` (surface batch), `SortedFaceData` |
+| `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque pipeline, `get_world_lighting` |
+| `src/studio_light.rs` | `blenkernel/intern/studiolight.cc` (`BKE_studiolight_default`) |
+| `src/material.rs` | `workbench::Material` (viewport display values) |
+| `src/overlay_grid.rs`, `src/grid_pass.rs`, `src/grid.wgsl` | `draw/engines/overlay/overlay_grid.hh`, `overlay_grid_vert/frag.glsl` |
+| `src/theme.rs` | `userdef_default_theme.c`, `ui::theme` shade and blend helpers |
+| `src/camera.rs` | `View3D` defaults, `BKE_camera_params_from_view3d` |
+| `src/viewport.rs`, `src/uniforms.rs` | new: canvas, render targets, JavaScript API |
+
+`cargo test` checks the plain-Rust modules natively: camera maths, mesh extraction, material
+grouping, and grid levels and colours against Blender's formulas. The GPU modules only build for
+`wasm32`.
+
+## Known differences from Blender
+
+- One forward pass instead of workbench's G-buffer and resolve passes. With default settings
+  (no cavity, shadow, outline or X-ray) the image is the same.
+- 4× MSAA instead of workbench's TAA and SMAA and the overlay line anti-aliasing pass.
+- Solid mode only, in a perspective free view with Material colour. No looking through the scene
+  camera, no orthographic views, and opaque drawing only (alpha below 1 is not transparent).
+- Overlays: the floor grid and X/Y axes only. No selection outlines, wireframes, origins, or
+  camera and light icons.
+- Overlay colours blend in scene-linear space rather than display space.
+- Normals are uploaded as 32-bit floats; Blender packs them into 10 bits.
+- The default theme and studio light are built in rather than read from user preferences.

@@ -1,0 +1,18 @@
+[package]
+name = "render"
+version = "0.1.0"
+edition = "2024"
+description = "Blender web migration: viewport renderer for the browser (WebGPU with WebGL2 fallback)"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+blenkernel = { path = "../blenkernel" }
+bytemuck = { version = "1.25.0", features = ["derive"] }
+glam = "0.29"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+web-sys = { version = "0.3.106", features = ["HtmlCanvasElement"] }
+wgpu = { version = "30.0.1", features = ["webgl"] }
