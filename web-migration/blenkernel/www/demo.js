@@ -4,8 +4,8 @@
 
 import init, { BlenderMain } from "../pkg/blenkernel.js";
 
-const TYPE_NAMES = ["Scene", "Object", "Mesh", "Collection"];
-const FLAG_NAMES = [[1, "TRANSFORM"], [2, "GEOMETRY"], [0x80000000, "RELATIONS"]];
+const TYPE_NAMES = ["Scene", "Object", "Mesh", "Collection", "Material"];
+const FLAG_NAMES = [[1, "TRANSFORM"], [2, "GEOMETRY"], [0x80, "SHADING"], [0x80000000, "RELATIONS"]];
 const NONE = 0xffffffff;
 
 const errorBox = document.getElementById("error");
@@ -31,6 +31,14 @@ function run() {
   const moon = bmain.object_add_mesh("Moon", sphereMesh);
   const floor = bmain.object_add_mesh("Floor", gridMesh);
   for (const ob of [cube, moon, floor]) bmain.scene_link_object(scene, ob);
+
+  // Materials: the wireframe color comes from each object's first material slot.
+  const orange = bmain.material_add("Orange", true);
+  bmain.material_set_viewport(orange, 0.91, 0.49, 0.05, 1, 0, 0.4);
+  const blue = bmain.material_add("Blue", true);
+  bmain.material_set_viewport(blue, 0.25, 0.6, 1.0, 1, 0, 0.4);
+  bmain.mesh_set_materials(cubeMesh, new Uint32Array([orange]));
+  bmain.mesh_set_materials(sphereMesh, new Uint32Array([blue]));
 
   // Moon is parented to the cube, so it orbits when the cube spins.
   bmain.object_set_parent(moon, cube);
@@ -127,7 +135,13 @@ function draw(bmain, scene, meshBuffers, ctx, canvas) {
       [screen[s], screen[s + 1]] = project(wx, wy, wz);
     }
 
-    ctx.strokeStyle = bmain.object_name(ob) === "Floor" ? "#6b6b6b" : "#e87d0d";
+    const material = bmain.object_material(ob, 0);
+    if (material === NONE) {
+      ctx.strokeStyle = "#6b6b6b";
+    } else {
+      const [r, g, b] = bmain.material_viewport(material);
+      ctx.strokeStyle = `rgb(${r * 255}, ${g * 255}, ${b * 255})`;
+    }
     ctx.beginPath();
     for (let e = 0; e < edges.length; e += 2) {
       const [a, b] = [edges[e] * 2, edges[e + 1] * 2];

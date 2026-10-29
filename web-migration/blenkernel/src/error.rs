@@ -21,6 +21,22 @@ pub enum BkeError {
     InvalidTopology(String),
     /// An attribute with this name already exists, or the name is reserved.
     AttributeNameTaken(String),
+    /// The shader node type is not supported.
+    UnknownNodeType(String),
+    /// The node handle does not refer to a live node in this tree.
+    InvalidNode(u32),
+    /// The node has no socket with this identifier.
+    UnknownSocket(String),
+    /// A value or link does not fit the socket type.
+    SocketTypeMismatch(String),
+    /// Linking would make the node graph cyclic.
+    NodeCycle,
+    /// The node has no setting with this name.
+    UnknownProperty(String),
+    /// A material has no node tree.
+    NoNodeTree(u32),
+    /// Invalid value passed in.
+    InvalidValue(String),
 }
 
 impl fmt::Display for BkeError {
@@ -41,6 +57,14 @@ impl fmt::Display for BkeError {
             BkeError::AttributeNameTaken(name) => {
                 write!(f, "attribute name \"{name}\" is taken or reserved")
             }
+            BkeError::UnknownNodeType(idname) => write!(f, "unsupported node type \"{idname}\""),
+            BkeError::InvalidNode(node) => write!(f, "invalid node handle {node}"),
+            BkeError::UnknownSocket(msg) => write!(f, "unknown socket: {msg}"),
+            BkeError::SocketTypeMismatch(msg) => write!(f, "socket type mismatch: {msg}"),
+            BkeError::NodeCycle => write!(f, "link would create a cycle in the node tree"),
+            BkeError::UnknownProperty(key) => write!(f, "unknown node property \"{key}\""),
+            BkeError::NoNodeTree(material) => write!(f, "material {material} has no node tree"),
+            BkeError::InvalidValue(msg) => write!(f, "invalid value: {msg}"),
         }
     }
 }

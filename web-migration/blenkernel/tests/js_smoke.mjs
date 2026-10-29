@@ -79,4 +79,36 @@ assert.deepEqual([...bmain.scene_objects(scene)], [moon]);
 assert.equal(bmain.object_parent(moon), NONE);
 bmain.mesh_remove(cubeMesh);
 
+// Materials and shader node trees (HACK-9).
+const mat = bmain.material_add("Red", true);
+assert.deepEqual([...bmain.material_viewport(mat)].map((v) => +v.toFixed(3)), [0.8, 0.8, 0.8, 1, 0, 0.4]);
+const tree = JSON.parse(bmain.material_node_tree_json(mat));
+assert.deepEqual(tree.nodes.map((n) => n.idname), ["ShaderNodeBsdfPrincipled", "ShaderNodeOutputMaterial"]);
+assert.equal(tree.links[0].to_socket, "Surface");
+assert.equal(bmain.material_output_node(mat), tree.output_node);
+
+const principled = tree.nodes[0].id;
+const rgb = bmain.material_node_add(mat, "ShaderNodeRGB");
+bmain.material_node_set_output(mat, rgb, "Color", new Float32Array([1, 0, 0, 1]));
+bmain.material_link_add(mat, rgb, "Color", principled, "Base Color");
+bmain.material_node_set_input(mat, principled, "Roughness", new Float32Array([0.2]));
+near(bmain.material_node_input(mat, principled, "Roughness")[0], 0.2, "roughness");
+assert.deepEqual([...bmain.material_node_order(mat)], [rgb, principled, tree.output_node]);
+assert.throws(() => bmain.material_node_set_input(mat, principled, "Roughness", new Float32Array([1, 2])), /Float/);
+assert.throws(() => bmain.material_link_add(mat, principled, "BSDF", rgb, "Color"), /no input/);
+assert.throws(() => bmain.material_node_add(mat, "ShaderNodeNope"), /unsupported node type/);
+
+bmain.material_set_viewport(mat, 1, 0, 0, 1, 0, 0.2);
+const sphereMat = bmain.material_add("Blue", false);
+bmain.mesh_set_materials(sphereMesh, new Uint32Array([mat, sphereMat]));
+assert.deepEqual([...bmain.mesh_materials(sphereMesh)], [mat, sphereMat]);
+assert.equal(bmain.object_material(moon, 0), mat);
+const faceSlots = new Int32Array(512).fill(1, 256);
+bmain.mesh_set_material_indices(sphereMesh, faceSlots);
+const triSlots = bmain.mesh_tri_material_indices(sphereMesh);
+assert.equal(triSlots.length, bmain.mesh_triangles(sphereMesh).length / 3);
+const changes = [...bmain.take_changes()];
+assert.ok(changes.some((v, i) => i % 3 === 0 && v === 4), "material change reported");
+assert.throws(() => bmain.material_remove(mat), /still has 1 user/);
+
 console.log("js_smoke: all checks passed");
