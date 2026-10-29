@@ -302,6 +302,42 @@ impl BlenderMain {
         Ok(self.inner.object(ObjectId(object)).map_err(js_err)?.location.to_array().to_vec())
     }
 
+    /// `Float32Array(3)`, radians.
+    pub fn object_rotation_euler(&self, object: u32) -> Result<Vec<f32>, JsError> {
+        Ok(self.inner.object(ObjectId(object)).map_err(js_err)?.rotation_euler.to_array().to_vec())
+    }
+
+    /// `Float32Array(4)`, Blender order: w, x, y, z.
+    pub fn object_rotation_quaternion(&self, object: u32) -> Result<Vec<f32>, JsError> {
+        let q = self.inner.object(ObjectId(object)).map_err(js_err)?.rotation_quaternion;
+        Ok(vec![q.w, q.x, q.y, q.z])
+    }
+
+    /// Blender's `ROT_MODE_*` value, see `object_set_rotation_mode`.
+    pub fn object_rotation_mode(&self, object: u32) -> Result<i32, JsError> {
+        Ok(self.inner.object(ObjectId(object)).map_err(js_err)?.rotation_mode as i32)
+    }
+
+    /// `Float32Array(3)`.
+    pub fn object_scale(&self, object: u32) -> Result<Vec<f32>, JsError> {
+        Ok(self.inner.object(ObjectId(object)).map_err(js_err)?.scale.to_array().to_vec())
+    }
+
+    /// Rename; returns the unique name it got ("Cube.001" if "Cube" is taken).
+    pub fn object_rename(&mut self, object: u32, name: &str) -> Result<String, JsError> {
+        self.inner.id_rename(IdType::Object, object, name).map_err(js_err)
+    }
+
+    /// Rename; returns the unique name it got.
+    pub fn material_rename(&mut self, material: u32, name: &str) -> Result<String, JsError> {
+        self.inner.id_rename(IdType::Material, material, name).map_err(js_err)
+    }
+
+    /// Every material handle, in creation order.
+    pub fn materials(&self) -> Vec<u32> {
+        self.inner.materials().map(|(id, _)| id.0).collect()
+    }
+
     /// `Float32Array(16)`, column-major, relative to the parent.
     pub fn object_local_matrix(&self, object: u32) -> Result<Vec<f32>, JsError> {
         let matrix = self.inner.object_local_matrix(ObjectId(object)).map_err(js_err)?;

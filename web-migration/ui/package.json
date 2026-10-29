@@ -1,0 +1,25 @@
+{
+  "name": "blender-web-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser UI shell for the Blender web migration (HACK-4)",
+  "scripts": {
+    "wasm": "cd ../app && wasm-pack build --target web",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}
