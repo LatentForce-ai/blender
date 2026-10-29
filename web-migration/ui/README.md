@@ -10,8 +10,8 @@ layout:
   environment, or any Radiance `.hdr` via **Load HDRI…**. Drag to orbit, scroll to zoom.
 - **Outliner**: the scene's objects nested by parent. Click to select, double-click to rename.
 - **Properties**: Object (name, location, rotation in degrees, scale, parent), Material (slots,
-  viewport color / metallic / roughness for Solid, the Principled BSDF's base color / metallic /
-  roughness / emission for Material Preview, new and remove slot), Mesh Data (counts).
+  viewport color / metallic / roughness for Solid, the Principled BSDF's base color (or an image via
+  **Texture…**) / metallic / roughness / emission for Material Preview, new and remove slot), Mesh Data (counts).
 - **Status bar**: object, vertex, face and triangle counts, backend, fps.
 
 All scene data lives in Rust (`BlenderMain`). `src/engine.ts` wraps it: every UI edit goes
@@ -30,5 +30,5 @@ npm run build    # type-checks and writes dist/
 ## Not yet
 
 - Selecting by clicking in the viewport (needs picking in render) and a selection outline.
-- Timeline (there's no animation system yet), Rendered mode, image textures, editing node
-  links, editing quaternion rotations.
+- Timeline (there's no animation system yet), Rendered mode, editing node links beyond the
+  Base Color texture, editing quaternion rotations.

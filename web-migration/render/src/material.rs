@@ -2,7 +2,7 @@
 //! viewport display values, not its node tree; Material Preview uses the node tree as evaluated
 //! by the shading crate (HACK-7). Empty slots and objects without materials use the default.
 
-use blenkernel::Material;
+use blenkernel::{ImageId, Material};
 use shading::ShadedMaterial;
 
 /// `View3DShading::type`: how the viewport colours surfaces.
@@ -43,6 +43,10 @@ pub struct SolidMaterial {
     pub roughness: f32,
     /// Added on top of lighting. Always black in Solid mode.
     pub emission: [f32; 3],
+    /// Image multiplied into the base colour in Material Preview (resolved by the viewport from
+    /// the Image Texture node's image name). Solid mode never textures, like Blender's
+    /// Material colour type.
+    pub texture: Option<ImageId>,
 }
 
 impl Default for SolidMaterial {
@@ -54,6 +58,7 @@ impl Default for SolidMaterial {
             metallic: 0.0,
             roughness: 0.4,
             emission: [0.0; 3],
+            texture: None,
         }
     }
 }
@@ -68,13 +73,14 @@ impl From<&Material> for SolidMaterial {
             metallic: material.metallic,
             roughness: material.roughness,
             emission: [0.0; 3],
+            texture: None,
         }
     }
 }
 
 impl From<&ShadedMaterial> for SolidMaterial {
-    /// A node-tree result for Material Preview. Image textures aren't drawn yet, so a textured
-    /// base color shows its factor (white for a direct link).
+    /// A node-tree result for Material Preview. `texture` is left for the viewport to resolve,
+    /// since the result only names the image.
     fn from(material: &ShadedMaterial) -> Self {
         SolidMaterial {
             base_color: material.base_color,
@@ -82,6 +88,7 @@ impl From<&ShadedMaterial> for SolidMaterial {
             metallic: material.metallic,
             roughness: material.roughness,
             emission: material.emission,
+            texture: None,
         }
     }
 }

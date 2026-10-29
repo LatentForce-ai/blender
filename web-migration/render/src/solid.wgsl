@@ -50,16 +50,21 @@ struct ObjectData {
 @group(2) @binding(0) var env_texture: texture_2d<f32>;
 @group(2) @binding(1) var env_sampler: sampler;
 @group(2) @binding(2) var<uniform> env_data: EnvironmentData;
+// Base colour image (HACK-14), or a 1×1 white texture.
+@group(3) @binding(0) var base_texture: texture_2d<f32>;
+@group(3) @binding(1) var base_sampler: sampler;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
 }
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) view_position: vec3<f32>,
     @location(1) view_normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
 }
 
 @vertex
@@ -70,6 +75,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.clip_position = view_data.view_projection * world_position;
     out.view_position = (view_data.view * world_position).xyz;
     out.view_normal = (view_data.view * vec4(world_normal, 0.0)).xyz;
+    out.uv = vertex.uv;
     return out;
 }
 
@@ -204,12 +210,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     // Back faces are lit from their own side, as workbench's `normal_encode` does.
     let n = normalize(select(-in.view_normal, in.view_normal, facing));
     let i = normalize(-in.view_position);
+    // Sampled before branching so it stays in uniform control flow. Blender's UV origin is the
+    // bottom left; image row 0 is the top.
+    let texel = textureSample(base_texture, base_sampler, vec2(in.uv.x, 1.0 - in.uv.y));
     var color: vec3<f32>;
+    var alpha = object_data.alpha;
     if (view_data.shading_type == 1u) {
-        color = environment_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
+        let base_color = object_data.base_color * texel.rgb;
+        alpha *= texel.a;
+        color = environment_lighting(base_color, object_data.roughness, object_data.metallic, n, i);
     } else {
         color = world_lighting(object_data.base_color, object_data.roughness, object_data.metallic, n, i);
     }
-    // Opaque slots have alpha 1; the blended pipeline uses it for "over" blending.
-    return vec4(color + object_data.emission, object_data.alpha);
+    // The opaque pipeline writes colour only; the blended one uses alpha for "over" blending.
+    return vec4(color + object_data.emission, alpha);
 }

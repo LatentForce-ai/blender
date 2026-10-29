@@ -16,6 +16,7 @@ parts the default viewport uses, onto [`wgpu`](https://wgpu.rs).
 | `src/solid_pass.rs`, `src/solid.wgsl` | `draw/engines/workbench/` opaque and transparent pipelines, `get_world_lighting` |
 | `src/studio_light.rs` | `blenkernel/intern/studiolight.cc` (`BKE_studiolight_default`) |
 | `src/environment.rs` | `studiolight.cc` (equirect HDRI), EEVEE world SH and reflection-probe mips |
+| `src/image_texture.rs` | `gpu_texture.cc` / imbuf mipmaps for Image Texture nodes |
 | `src/material.rs` | `workbench::Material` (viewport display values); Material Preview values from `../shading` |
 | `src/overlay_grid.rs`, `src/grid_pass.rs`, `src/grid.wgsl` | `draw/engines/overlay/overlay_grid.hh`, `overlay_grid_vert/frag.glsl` |
 | `src/theme.rs` | `userdef_default_theme.c`, `ui::theme` shade and blend helpers |
@@ -37,8 +38,11 @@ grouping, and grid levels and colours against Blender's formulas. The GPU module
   with an analytic split-sum BRDF in place of EEVEE's lookup table. No shadows, AO or
   screen-space reflections, and the background stays the theme colour (World Opacity 0).
   The default environment is a built-in procedural studio, since Blender's bundled `forest.exr`
-  isn't decoded here; `set_environment_hdr(bytes)` loads any Radiance `.hdr`. No image
-  textures yet.
+  isn't decoded here; `set_environment_hdr(bytes)` loads any Radiance `.hdr`.
+- Image textures (`src/image_texture.rs`): an Image Texture linked straight into Base Color is
+  multiplied in, in Material Preview only, through the mesh's `"UVMap"`, with mipmaps built in
+  linear light, Linear filtering and Repeat extension. Textures through Mix or other nodes,
+  other UV maps, and texture alpha on opaque materials (alpha clip) aren't supported.
 - A perspective free view with Material colour. No looking through the scene camera and no
   orthographic views.
 - Alpha below 1 is drawn blended after opaque surfaces and the grid, sorted far to near per

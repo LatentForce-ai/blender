@@ -352,3 +352,19 @@ Reference: `source/blender/blenloader/intern/readfile.cc`, `makesdna/intern/dna_
 
 **Decisions:** node tree embedded in the material (as in Blender, not a separate data-block);
 blenkernel only stores the graph, the shading module evaluates it.
+
+---
+
+## HACK-14: Image data-block and UV maps (for image textures)
+
+**Done (2026-10-29):**
+- `image.rs`: `Image` (width, height, RGBA8 sRGB pixels decoded by the caller, row 0 at the
+  top), `IdType::Image` = 5 ("IM"); `Main::image_add` / `image` / `images` / `image_by_name` /
+  `image_remove`, and the JS equivalents (`image_add(name, w, h, pixels)`, `image_size`, ...).
+- Primitives get a corner-domain Float2 `"UVMap"` like `create_*_mesh(calc_uvs)`: grid spans
+  0–1, the UV sphere unwraps by segment and ring, the cube gets a full square per face (Blender
+  unwraps it into a cross). `Mesh::uv_map()`.
+
+**Decisions:** Image Texture nodes keep naming their image through the `image` property and
+render resolves it with `image_by_name`; images are immutable once added (no user counting), so
+removing one leaves nodes pointing at a missing image, drawn magenta as in Blender.

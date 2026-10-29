@@ -63,6 +63,9 @@ pub struct Mesh {
 /// Face attribute selecting the material slot (`"material_index"` in Blender).
 pub const MATERIAL_INDEX: &str = "material_index";
 
+/// Default UV map name: a corner-domain Float2 attribute, as Blender stores UV maps.
+pub const UV_MAP: &str = "UVMap";
+
 impl Default for Mesh {
     fn default() -> Self {
         Mesh {
@@ -267,6 +270,14 @@ impl Mesh {
 
     pub fn remove_attribute(&mut self, name: &str) -> bool {
         self.attributes.remove(name)
+    }
+
+    /// The `"UVMap"` coordinates, one per corner, if the mesh has them.
+    pub fn uv_map(&self) -> Option<&[[f32; 2]]> {
+        match self.attributes.lookup(UV_MAP) {
+            Some(Attribute { domain: AttrDomain::Corner, data: AttributeData::Float2(uvs), .. }) => Some(uvs),
+            _ => None,
+        }
     }
 
     /// Material slots. Change them through `Main::mesh_set_materials` so user counts stay right.

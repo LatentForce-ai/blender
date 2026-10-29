@@ -13,6 +13,7 @@ use wasm_bindgen::prelude::*;
 use crate::collection::CollectionId;
 use crate::error::BkeError;
 use crate::id::{recalc, IdType};
+use crate::image::{Image, ImageId};
 use crate::main_db::{CollectionRef, Main};
 use crate::material::{default_surface_tree, MaterialId};
 use crate::mesh::{Mesh, MeshId};
@@ -348,6 +349,35 @@ impl BlenderMain {
     pub fn object_world_matrix(&self, object: u32) -> Result<Vec<f32>, JsError> {
         let matrix = self.inner.object_world_matrix(ObjectId(object)).map_err(js_err)?;
         Ok(matrix.to_cols_array().to_vec())
+    }
+
+    // ------------------------------------------------------------ Images (HACK-14)
+
+    /// New image from decoded RGBA8 pixels (`width * height * 4` bytes, sRGB, row 0 at the
+    /// top, as `ImageData` gives them). Returns its handle; its unique name is what an Image
+    /// Texture node's `image` property refers to.
+    pub fn image_add(&mut self, name: &str, width: u32, height: u32, pixels: Vec<u8>) -> Result<u32, JsError> {
+        let image = Image::new(width, height, pixels).map_err(js_err)?;
+        Ok(self.inner.image_add(name, image).0)
+    }
+
+    /// Every image handle, in creation order.
+    pub fn images(&self) -> Vec<u32> {
+        self.inner.images().map(|(id, _)| id.0).collect()
+    }
+
+    pub fn image_name(&self, image: u32) -> Result<String, JsError> {
+        Ok(self.inner.image(ImageId(image)).map_err(js_err)?.id.name.clone())
+    }
+
+    /// `[width, height]` in pixels.
+    pub fn image_size(&self, image: u32) -> Result<Vec<u32>, JsError> {
+        let found = self.inner.image(ImageId(image)).map_err(js_err)?;
+        Ok(vec![found.width, found.height])
+    }
+
+    pub fn image_remove(&mut self, image: u32) -> Result<(), JsError> {
+        self.inner.image_remove(ImageId(image)).map_err(js_err)
     }
 
     // ------------------------------------------------------------ Materials (shading / render)

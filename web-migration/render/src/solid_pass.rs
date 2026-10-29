@@ -13,7 +13,12 @@ use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use wgpu::util::DeviceExt;
 
+use std::collections::HashMap;
+
+use blenkernel::{Image, ImageId};
+
 use crate::environment::{Environment, Irradiance, LEVELS, prefiltered_levels};
+use crate::image_texture::{MipLevel, mip_chain};
 use crate::material::{ShadingType, SolidMaterial};
 use crate::mesh_extract::{CornerVertex, SurfaceGeometry};
 use crate::studio_light::StudioLight;
@@ -137,6 +142,8 @@ pub struct ObjectBinding {
     bind_group: wgpu::BindGroup,
     /// Negative scale flips the winding, which swaps which faces culling treats as back.
     mirrored: bool,
+    /// Base colour image, drawn in Material Preview.
+    texture: Option<ImageId>,
 }
 
 /// Which faces a pipeline draws and how it writes colour and depth.
@@ -159,6 +166,105 @@ pub struct SolidPass {
     frame_bind_group: wgpu::BindGroup,
     object_layout: wgpu::BindGroupLayout,
     environment: EnvironmentBinding,
+    textures: TextureCache,
+}
+
+/// GPU copies of blenkernel images, by handle. Images never change after `Main::image_add`
+/// and handles are never reused, so an entry stays valid until its image is removed.
+struct TextureCache {
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    white: wgpu::BindGroup,
+    images: HashMap<ImageId, wgpu::BindGroup>,
+}
+
+impl TextureCache {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> TextureCache {
+        let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty,
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("base texture"),
+            entries: &[
+                entry(0, wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                }),
+                entry(1, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
+            ],
+        });
+        // Image Texture's defaults: Linear interpolation, Repeat extension.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("base texture"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let white_level = MipLevel { width: 1, height: 1, pixels: vec![255; 4] };
+        let white = Self::upload(device, queue, &layout, &sampler, &[white_level]);
+        TextureCache { layout, sampler, white, images: HashMap::new() }
+    }
+
+    fn upload(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        levels: &[MipLevel],
+    ) -> wgpu::BindGroup {
+        let size = |level: &MipLevel| wgpu::Extent3d {
+            width: level.width,
+            height: level.height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("base texture"),
+            size: size(&levels[0]),
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (mip_level, level) in levels.iter().enumerate() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip_level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &level.pixels,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(level.width * 4),
+                    rows_per_image: None,
+                },
+                size(level),
+            );
+        }
+        let view = texture.create_view(&Default::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("base texture"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        })
+    }
+
+    fn bind_group(&self, image: Option<ImageId>) -> &wgpu::BindGroup {
+        image.and_then(|id| self.images.get(&id)).unwrap_or(&self.white)
+    }
 }
 
 /// Material Preview's lighting: the prefiltered environment texture and SH irradiance.
@@ -301,7 +407,8 @@ impl SolidPass {
         let object_layout = uniform_layout(device, "object", 1);
         let mut environment = EnvironmentBinding::new(device);
         environment.upload(device, queue, &Environment::studio());
-        let layouts = [&frame_layout, &object_layout, &environment.layout];
+        let textures = TextureCache::new(device, queue);
+        let layouts = [&frame_layout, &object_layout, &environment.layout, &textures.layout];
         let pipeline =
             |kind| create_pipeline(device, &layouts, color_format, sample_count, kind);
 
@@ -322,7 +429,23 @@ impl SolidPass {
             frame_bind_group,
             object_layout,
             environment,
+            textures,
         }
+    }
+
+    /// Uploads `image` (with mipmaps) unless it already is on the GPU.
+    pub fn ensure_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: ImageId, image: &Image) {
+        let cache = &mut self.textures;
+        if !cache.images.contains_key(&id) {
+            let levels = mip_chain(image.width, image.height, image.pixels());
+            let bind_group = TextureCache::upload(device, queue, &cache.layout, &cache.sampler, &levels);
+            cache.images.insert(id, bind_group);
+        }
+    }
+
+    /// Frees GPU copies of images `keep` rejects (removed from `Main`).
+    pub fn retain_textures(&mut self, keep: impl Fn(ImageId) -> bool) {
+        self.textures.images.retain(|&id, _| keep(id));
     }
 
     /// Replaces Material Preview's environment (prefiltering it takes tens of milliseconds).
@@ -337,6 +460,7 @@ impl SolidPass {
             uniform,
             bind_group,
             mirrored: false,
+            texture: None,
         }
     }
 
@@ -361,6 +485,7 @@ impl SolidPass {
         material: &SolidMaterial,
     ) {
         binding.mirrored = model.determinant() < 0.0;
+        binding.texture = material.texture;
         let object_data = ObjectData {
             model: model.to_cols_array_2d(),
             normal_matrix: model.inverse().transpose().to_cols_array_2d(),
@@ -386,7 +511,7 @@ impl SolidPass {
         pass.set_bind_group(0, &self.frame_bind_group, &[]);
         pass.set_bind_group(2, &self.environment.bind_group, &[]);
         for (batch, slot, binding) in draws {
-            Self::draw_slot(pass, batch, slot, binding);
+            self.draw_slot(pass, batch, slot, binding);
         }
     }
 
@@ -406,17 +531,18 @@ impl SolidPass {
             };
             for pipeline in [far_side, near_side] {
                 pass.set_pipeline(pipeline);
-                Self::draw_slot(pass, batch, slot, binding);
+                self.draw_slot(pass, batch, slot, binding);
             }
         }
     }
 
-    fn draw_slot(pass: &mut wgpu::RenderPass<'_>, batch: &MeshBatch, slot: usize, binding: &ObjectBinding) {
+    fn draw_slot(&self, pass: &mut wgpu::RenderPass<'_>, batch: &MeshBatch, slot: usize, binding: &ObjectBinding) {
         let range = batch.slot_ranges[slot].clone();
         if range.is_empty() {
             return;
         }
         pass.set_bind_group(1, &binding.bind_group, &[]);
+        pass.set_bind_group(3, self.textures.bind_group(binding.texture), &[]);
         pass.set_vertex_buffer(0, batch.vertices.slice(..));
         pass.set_index_buffer(batch.indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(range, 0, 0..1);
@@ -452,7 +578,7 @@ fn create_pipeline(
             buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: size_of::<CornerVertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
             })],
         },
         fragment: Some(wgpu::FragmentState {
@@ -462,7 +588,8 @@ fn create_pipeline(
             targets: &[Some(wgpu::ColorTargetState {
                 format: color_format,
                 blend,
-                write_mask: wgpu::ColorWrites::ALL,
+                // Opaque surfaces keep the canvas opaque even where a texture's alpha is below 1.
+                write_mask: if blend.is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::COLOR },
             })],
         }),
         primitive: wgpu::PrimitiveState {
